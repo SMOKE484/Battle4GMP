@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&amp;family=Nunito:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+  <style>
+    body{margin:0;background:#e9e4f5;font-family:'Nunito',sans-serif;}
+    .b4g-heading{font-family:'Baloo 2',cursive;}
+    .b4g-scroll::-webkit-scrollbar{display:none;}
+    input.xw{font-family:'Baloo 2',cursive;text-align:center;text-transform:uppercase;}
+    input.xw:focus{outline:2px solid #8b7cc9;}
+  </style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;">
+  <div style="width:390px;height:844px;background:#1c1730;border-radius:52px;padding:14px;box-shadow:0 30px 60px -20px rgba(60,40,100,0.45);">
+    <div style="width:100%;height:100%;background:linear-gradient(180deg,#f3effa,#e6ddf7);border-radius:40px;overflow:hidden;position:relative;display:flex;flex-direction:column;">
+
+      <div style="height:28px;flex:none;display:flex;align-items:center;justify-content:center;position:relative;">
+        <div style="width:100px;height:20px;background:#1c1730;border-radius:0 0 16px 16px;position:absolute;top:0;"></div>
+      </div>
+
+      <div style="flex:none;padding:8px 20px 12px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:7px;cursor:pointer;" onClick="{{ goHome }}">
+          <div style="width:26px;height:26px;border-radius:9px;background:linear-gradient(135deg,#8b7cc9,#5c4b96);display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px -2px rgba(92,75,150,0.5);">{{ brandIcon }}</div>
+          <div class="b4g-heading" style="font-weight:800;font-size:16px;color:#5c4b96;letter-spacing:-0.2px;">BATTLE<span style="color:#e8779e;">4</span>GMP</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <div style="display:flex;align-items:center;gap:5px;background:#fff;border-radius:999px;padding:6px 11px;box-shadow:0 2px 8px rgba(92,75,150,0.12);">
+            {{ keyIconSm }}<span style="font-size:12px;font-weight:800;color:#5c4b96;">{{ clueTokens }}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:linear-gradient(135deg,#6d5aab,#5c4b96);border-radius:999px;padding:6px 12px;box-shadow:0 4px 10px -3px rgba(92,75,150,0.45);">
+            <span style="font-size:12px;font-weight:800;color:#fff;">{{ score }} PTS</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="b4g-scroll" style="flex:1;overflow-y:auto;padding:0 20px 16px;">
+
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align:center;padding:8px 0 18px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#a68fd1;">PLAY · LEARN · PROTECT</div>
+            <div class="b4g-heading" style="font-size:15px;color:#5c4b96;margin-top:4px;">Good Manufacturing Practice</div>
+          </div>
+          <sc-for list="{{ levelCards }}" as="lvl" hint-placeholder-count="3">
+            <div onClick="{{ lvl.onClick }}" style="background:#fff;border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:0 8px 20px -8px rgba(92,75,150,0.25);border:2px solid {{ lvl.border }};opacity:{{ lvl.opacity }};position:relative;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-size:11px;font-weight:800;background:{{ lvl.badgeBg }};color:{{ lvl.badgeColor }};border-radius:999px;padding:4px 10px;">LEVEL {{ lvl.num }}</span>
+                <div style="width:36px;height:36px;border-radius:12px;background:{{ lvl.badgeBg }};display:flex;align-items:center;justify-content:center;">{{ lvl.icon }}</div>
+              </div>
+              <div class="b4g-heading" style="font-size:19px;color:#3a2f5c;">{{ lvl.title }}</div>
+              <div style="font-size:12px;font-weight:700;color:#e8779e;margin:2px 0 8px;">{{ lvl.topic }}</div>
+              <div style="font-size:12.5px;color:#7a6f9c;line-height:1.4;">{{ lvl.desc }}</div>
+              <div style="margin-top:12px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:{{ lvl.ctaColor }};">{{ lvl.cta }}{{ lvl.ctaIcon }}</div>
+            </div>
+          </sc-for>
+        </sc-if>
+
+        <sc-if value="{{ isInstructions }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;padding:8px 0 16px;">
+            <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#8b7cc9,#5c4b96);display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 16px -4px rgba(92,75,150,0.4);">{{ bookIconLg }}</div>
+            <div class="b4g-heading" style="font-size:20px;color:#5c4b96;margin-top:10px;">How to play</div>
+          </div>
+          <sc-for list="{{ rules }}" as="rule" hint-placeholder-count="4">
+            <div style="display:flex;gap:12px;background:#fff;border-radius:18px;padding:14px;margin-bottom:10px;box-shadow:0 6px 14px -6px rgba(92,75,150,0.18);">
+              <div class="b4g-heading" style="font-size:20px;color:#e8779e;flex:none;width:24px;">{{ rule.n }}</div>
+              <div>
+                <div style="font-weight:800;font-size:13.5px;color:#3a2f5c;">{{ rule.title }}</div>
+                <div style="font-size:12px;color:#7a6f9c;margin-top:2px;">{{ rule.body }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+
+        <sc-if value="{{ isLevel1 }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 4px;">
+            <span style="font-size:11px;font-weight:800;background:#fddce8;color:#c9497b;border-radius:999px;padding:4px 10px;">LEVEL 1 · 3</span>
+            <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#a68fd1;">{{ keyIconTiny }} reveals a letter</span>
+          </div>
+          <div class="b4g-heading" style="font-size:19px;color:#3a2f5c;margin-bottom:4px;">Data Integrity — ALCOA+</div>
+          <div style="font-size:12px;color:#7a6f9c;margin-bottom:14px;">Fill the grid with the data-integrity terms.</div>
+
+          <div style="background:#fff;border-radius:18px;padding:14px;box-shadow:0 6px 14px -6px rgba(92,75,150,0.18);">
+            <div style="display:grid;grid-template-columns:repeat({{ crosswordCols }},29px);grid-auto-rows:29px;gap:2px;justify-content:center;">
+              <sc-for list="{{ crosswordCells }}" as="cell" hint-placeholder-count="30">
+                <div style="grid-column:{{ cell.col }};grid-row:{{ cell.row }};position:relative;background:{{ cell.bg }};border-radius:4px;">
+                  <sc-if value="{{ cell.active }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ cell.number }}" hint-placeholder-val="{{ false }}">
+                      <span style="position:absolute;top:0;left:2px;font-size:7px;color:#a68fd1;">{{ cell.number }}</span>
+                    </sc-if>
+                    <input class="xw" maxlength="1" value="{{ cell.value }}" onChange="{{ cell.onChange }}" style="width:100%;height:100%;border:none;background:transparent;font-size:13px;color:{{ cell.color }};font-weight:700;border-radius:4px;"></input>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="margin-top:14px;">
+            <sc-for list="{{ crosswordClues }}" as="clue" hint-placeholder-count="4">
+              <div style="display:flex;gap:6px;padding:8px 0;border-bottom:1px solid #eae4f7;">
+                <span style="font-size:11px;font-weight:800;color:#e8779e;flex:none;">{{ clue.num }}{{ clue.dir }}</span>
+                <span style="font-size:12px;color:#5c527c;">{{ clue.text }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:16px;">
+            <button onClick="{{ useClueToken }}" style="flex:1;border:2px solid #d9cdf2;background:#fff;color:#5c4b96;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;">USE CLUE</button>
+            <button onClick="{{ submitLevel1 }}" style="flex:1.4;border:none;background:#e8779e;color:#fff;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;box-shadow:0 6px 14px -4px rgba(232,119,158,0.5);">SUBMIT →</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isLevel2 }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 4px;">
+            <span style="font-size:11px;font-weight:800;background:#d6e9f7;color:#3477a3;border-radius:999px;padding:4px 10px;">LEVEL 2 · 3</span>
+            <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#a68fd1;">{{ keyIconTiny }} reveals a match</span>
+          </div>
+          <div class="b4g-heading" style="font-size:19px;color:#3a2f5c;margin-bottom:4px;">Personnel — Drag the Words</div>
+          <div style="font-size:12px;color:#7a6f9c;margin-bottom:14px;">Drag each role onto its matching responsibility.</div>
+
+          <div style="font-size:11px;font-weight:800;color:#3477a3;margin-bottom:8px;">ROLES</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+            <sc-for list="{{ level2Terms }}" as="term" hint-placeholder-count="4">
+              <div draggable="true" onDragStart="{{ term.onDragStart }}" style="background:#fff;border:2px solid #a9d3ec;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;color:#2f6690;box-shadow:0 4px 10px -4px rgba(52,119,163,0.25);cursor:grab;">{{ term.label }}</div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:11px;font-weight:800;color:#3477a3;margin-bottom:8px;">RESPONSIBILITIES</div>
+          <sc-for list="{{ level2Defs }}" as="def" hint-placeholder-count="4">
+            <div onDrop="{{ def.onDrop }}" onDragOver="{{ preventDefault }}" style="background:#fff;border-radius:16px;padding:12px;margin-bottom:10px;box-shadow:0 6px 14px -6px rgba(92,75,150,0.15);">
+              <div style="font-size:12px;color:#5c527c;margin-bottom:8px;">{{ def.text }}</div>
+              <div style="height:36px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:{{ def.bg }};border:2px dashed {{ def.border }};color:{{ def.color }};">{{ def.label }}</div>
+            </div>
+          </sc-for>
+
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onClick="{{ useClueToken }}" style="flex:1;border:2px solid #d9cdf2;background:#fff;color:#5c4b96;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;">USE CLUE</button>
+            <button onClick="{{ submitLevel2 }}" style="flex:1.4;border:none;background:#e8779e;color:#fff;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;box-shadow:0 6px 14px -4px rgba(232,119,158,0.5);">SUBMIT →</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isLevel3 }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 4px;">
+            <span style="font-size:11px;font-weight:800;background:#e6def7;color:#6b53a8;border-radius:999px;padding:4px 10px;">LEVEL 3 · 3</span>
+            <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#a68fd1;">{{ keyIconTiny }} highlights a row</span>
+          </div>
+          <div class="b4g-heading" style="font-size:19px;color:#3a2f5c;margin-bottom:4px;">Sterility — Word Search</div>
+          <div style="font-size:12px;color:#7a6f9c;margin-bottom:12px;">Pick a scenario, then tap the row hiding its term.</div>
+
+          <div style="background:#fff;border-radius:18px;padding:12px;box-shadow:0 6px 14px -6px rgba(92,75,150,0.18);margin-bottom:14px;display:flex;flex-direction:column;gap:3px;">
+            <sc-for list="{{ wordSearchRows }}" as="row" hint-placeholder-count="6">
+              <div onClick="{{ row.onClick }}" style="display:grid;grid-template-columns:repeat(7,32px);gap:3px;cursor:pointer;justify-content:center;">
+                <sc-for list="{{ row.cells }}" as="ch" hint-placeholder-count="7">
+                  <div style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-family:'Baloo 2',cursive;font-weight:700;font-size:13px;background:{{ row.bg }};color:{{ row.color }};border-radius:6px;">{{ ch }}</div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:11px;font-weight:800;color:#6b53a8;margin-bottom:8px;">SCENARIOS</div>
+          <sc-for list="{{ scenarios }}" as="sc" hint-placeholder-count="6">
+            <div onClick="{{ sc.onClick }}" style="background:{{ sc.bg }};border:2px solid {{ sc.borderColor }};border-radius:14px;padding:10px 12px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;">
+                <span style="font-size:10px;font-weight:800;color:#8674ac;">{{ sc.word }}</span>
+                <sc-if value="{{ sc.found }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px;font-weight:800;color:#4aa66b;">✓ FOUND</span></sc-if>
+              </div>
+              <div style="font-size:12px;color:#3a2f5c;margin-top:2px;">{{ sc.clue }}</div>
+            </div>
+          </sc-for>
+
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onClick="{{ useClueToken }}" style="flex:1;border:2px solid #d9cdf2;background:#fff;color:#5c4b96;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;">USE CLUE</button>
+            <button onClick="{{ submitLevel3 }}" style="flex:1.4;border:none;background:#e8779e;color:#fff;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;box-shadow:0 6px 14px -4px rgba(232,119,158,0.5);">FINISH →</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isResults }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;padding:12px 0 8px;">
+            <div style="width:60px;height:60px;border-radius:20px;background:linear-gradient(135deg,#f2c14e,#e8779e);display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 10px 20px -6px rgba(232,119,158,0.5);">{{ trophyIconLg }}</div>
+            <div class="b4g-heading" style="font-size:22px;color:#5c4b96;margin-top:10px;">Great work!</div>
+            <div style="font-size:12px;color:#7a6f9c;">Here's how you did.</div>
+          </div>
+          <sc-for list="{{ resultsRows }}" as="r" hint-placeholder-count="3">
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:10px;box-shadow:0 6px 14px -6px rgba(92,75,150,0.15);">
+              <div>
+                <div style="font-weight:800;font-size:13px;color:#3a2f5c;">{{ r.level }}</div>
+                <div style="font-size:11px;color:#a68fd1;">{{ r.pillar }}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px;font-weight:800;color:{{ r.statusColor }};">{{ r.status }}</div>
+                <div style="font-size:13px;font-weight:800;color:#5c4b96;">+{{ r.points }}</div>
+              </div>
+            </div>
+          </sc-for>
+          <div style="background:#5c4b96;border-radius:18px;padding:16px;margin:16px 0;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#e0d8f5;font-weight:700;font-size:13px;">TOTAL SCORE</span>
+            <span class="b4g-heading" style="color:#fff;font-size:26px;">{{ score }}</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onClick="{{ resetGame }}" style="flex:1;border:2px solid #d9cdf2;background:#fff;color:#5c4b96;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;">PLAY AGAIN</button>
+            <button onClick="{{ goHome }}" style="flex:1;border:none;background:#e8779e;color:#fff;font-weight:800;font-size:12.5px;border-radius:999px;padding:12px;">HOME</button>
+          </div>
+        </sc-if>
+
+      </div>
+
+      <div style="flex:none;display:flex;justify-content:space-around;align-items:center;padding:10px 8px 14px;background:#fff;box-shadow:0 -4px 14px -6px rgba(92,75,150,0.18);">
+        <sc-for list="{{ navItems }}" as="nav" hint-placeholder-count="5">
+          <div onClick="{{ nav.onClick }}" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;opacity:{{ nav.opacity }};">
+            <div style="width:34px;height:34px;border-radius:12px;background:{{ nav.pillBg }};display:flex;align-items:center;justify-content:center;transition:background 0.15s;">{{ nav.icon }}</div>
+            <span style="font-size:9px;font-weight:800;color:{{ nav.color }};">{{ nav.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const ICONS = {
+  home: [{ p: 'M3 12l9-9 9 9' }, { p: 'M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10' }],
+  grid: [{ r: [3,3,7,7,1.5] }, { r: [14,3,7,7,1.5] }, { r: [14,14,7,7,1.5] }, { r: [3,14,7,7,1.5] }],
+  users: [{ p: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }, { c: [9,7,4] }, { p: 'M22 21v-2a4 4 0 0 0-3-3.87' }, { p: 'M16 3.13a4 4 0 0 1 0 7.75' }],
+  search: [{ c: [11,11,8] }, { l: [21,21,16.65,16.65] }],
+  trophy: [{ p: 'M8 21h8' }, { p: 'M12 17v4' }, { p: 'M7 4h10v5a5 5 0 0 1-10 0z' }, { p: 'M7 6H4a1 1 0 0 0-1 1 4 4 0 0 0 4 4' }, { p: 'M17 6h3a1 1 0 0 1 1 1 4 4 0 0 1-4 4' }],
+  key: [{ c: [8,15,4] }, { p: 'M10.5 12.5 19 4' }, { p: 'M17 6l2 2' }, { p: 'M14 9l2 2' }],
+  lock: [{ r: [5,11,14,10,2] }, { p: 'M8 11V7a4 4 0 0 1 8 0v4' }],
+  check: [{ c: [12,12,10] }, { p: 'm9 12 2 2 4-4' }],
+  chevronRight: [{ p: 'm9 18 6-6-6-6' }],
+  book: [{ p: 'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z' }, { p: 'M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z' }],
+  shieldCheck: [{ p: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }, { p: 'm9 12 2 2 4-4' }],
+  star: [{ p: 'M12 2.5l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.8 5.9 21.1l1.4-6.8-5.1-4.7 6.9-.8z' }],
+};
+function Icon(name, { size = 16, color = 'currentColor', strokeWidth = 2, style } = {}) {
+  const shapes = ICONS[name] || [];
+  return React.createElement('svg', {
+    viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: color,
+    strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', style,
+  }, shapes.map((s, i) => {
+    if (s.p) return React.createElement('path', { key: i, d: s.p });
+    if (s.c) return React.createElement('circle', { key: i, cx: s.c[0], cy: s.c[1], r: s.c[2] });
+    if (s.l) return React.createElement('line', { key: i, x1: s.l[0], y1: s.l[1], x2: s.l[2], y2: s.l[3] });
+    if (s.r) return React.createElement('rect', { key: i, x: s.r[0], y: s.r[1], width: s.r[2], height: s.r[3], rx: s.r[4] });
+    return null;
+  }));
+}
+
+class Component extends DCLogic {
+  state = {
+    screen: 'home',
+    clueTokens: 3,
+    score: 240,
+    level1Done: true,
+    level2Done: false,
+    level3Done: false,
+    matches: { d1: 't3' },
+    foundWords: [1],
+  };
+
+  terms = [
+    { id: 't1', label: 'Warehouse Pharmacist' },
+    { id: 't2', label: 'Production Operator' },
+    { id: 't3', label: 'Quality Assurance' },
+    { id: 't4', label: 'Responsible Pharmacist' },
+  ];
+  defs = [
+    { id: 'd1', correctTerm: 't3', text: 'Oversees GMP compliance and approves batch release.' },
+    { id: 'd2', correctTerm: 't1', text: 'Manages receipt, storage and dispensing of materials.' },
+    { id: 'd3', correctTerm: 't4', text: 'Holds legal accountability for batch quality and safety.' },
+    { id: 'd4', correctTerm: 't2', text: 'Carries out manufacturing steps in classified cleanrooms.' },
+  ];
+
+  crosswordLetters = {
+    '0-0': ['A', 1], '0-1': ['C'], '0-2': ['C'], '0-3': ['U'], '0-4': ['R'], '0-5': ['A'], '0-6': ['T'], '0-7': ['E'],
+    '1-3': ['O'], '2-3': ['N'],
+    '3-0': ['L', 2], '3-1': ['E'], '3-2': ['G'], '3-3': ['I'], '3-4': ['B'], '3-5': ['L'], '3-6': ['E'],
+    '4-3': ['T'], '5-3': ['E'], '6-3': ['M'],
+  };
+  clues = [
+    { num: 1, dir: 'A', text: 'Data must be __________ to its source (across)' },
+    { num: 2, dir: 'A', text: 'Records must be clear and readable (across)' },
+    { num: 1, dir: 'D', text: 'Recorded at the time of activity' },
+  ];
+
+  wordDefs = [
+    { word: 'CLEANROOM', row: 0, clue: 'A controlled space engineered to limit airborne particles.' },
+    { word: 'ASEPTIC', row: 1, clue: 'Free from pathogenic microorganisms via no-touch technique.' },
+    { word: 'GOWNING', row: 2, clue: 'Dressing in protective garments before entering a classified area.' },
+    { word: 'STERILE', row: 3, clue: 'Completely free of viable microorganisms.' },
+    { word: 'FILTER', row: 4, clue: 'Removes particles and microbes from air or liquid.' },
+    { word: 'CONTROL', row: 5, clue: 'Measures to prevent, detect and correct contamination.' },
+  ];
+  wordRowCells = [
+    ['C','L','E','A','N','R','O'],
+    ['A','S','E','P','T','I','C'],
+    ['G','O','W','N','I','N','G'],
+    ['S','T','E','R','I','L','E'],
+    ['F','I','L','T','E','R','P'],
+    ['C','O','N','T','R','O','L'],
+  ];
+
+  preventDefault = (e) => e.preventDefault();
+  goHome = () => this.setState({ screen: 'home' });
+  goInstructions = () => this.setState({ screen: 'instructions' });
+  goResults = () => this.setState({ screen: 'results' });
+  resetGame = () => this.setState({ screen: 'home', score: 0, clueTokens: 3, matches: {}, foundWords: [] });
+  useClueToken = () => { if (this.state.clueTokens > 0) this.setState(s => ({ clueTokens: s.clueTokens - 1 })); };
+  submitLevel1 = () => this.setState({ screen: 'level2' });
+  submitLevel2 = () => this.setState({ screen: 'level3' });
+  submitLevel3 = () => this.setState({ screen: 'results' });
+  goLevel = (n) => () => this.setState({ screen: 'level' + n });
+
+  toggleFound = (idx) => () => {
+    this.setState(s => s.foundWords.includes(idx) ? s : { foundWords: [...s.foundWords, idx] });
+  };
+
+  renderVals() {
+    const s = this.state;
+    const nav = [
+      { key: 'home', iconName: 'home', label: 'HOME' },
+      { key: 'level1', iconName: 'grid', label: 'LVL 1' },
+      { key: 'level2', iconName: 'users', label: 'LVL 2' },
+      { key: 'level3', iconName: 'search', label: 'LVL 3' },
+      { key: 'results', iconName: 'trophy', label: 'SCORE' },
+    ];
+    const navItems = nav.map(n => {
+      const active = s.screen === n.key;
+      return {
+        icon: Icon(n.iconName, { size: 18, color: active ? '#fff' : '#a892cf' }), label: n.label,
+        onClick: () => this.setState({ screen: n.key }),
+        color: active ? '#e8779e' : '#a892cf',
+        pillBg: active ? '#e8779e' : 'transparent',
+        opacity: 1,
+      };
+    });
+
+    const lvl2Locked = false, lvl3Locked = false;
+    const levelCards = [
+      { num: 1, icon: Icon('grid', { size: 18, color: '#c9497b' }), title: 'Crossword', topic: 'DATA INTEGRITY', desc: 'Fill in ALCOA+ terms to master data integrity principles.',
+        border: '#fddce8', badgeBg: '#fddce8', badgeColor: '#c9497b', ctaColor: '#c9497b', locked: false,
+        opacity: 1, ctaIcon: s.level1Done ? Icon('check', { size: 13, color: '#c9497b' }) : Icon('chevronRight', { size: 13, color: '#c9497b' }),
+        cta: s.level1Done ? 'Completed · Replay' : 'Start level', onClick: () => this.setState({ screen: 'level1' }) },
+      { num: 2, icon: Icon('users', { size: 18, color: '#3477a3' }), title: 'Drag the Words', topic: 'PERSONNEL', desc: 'Match personnel roles to their GMP responsibilities.',
+        border: '#d6e9f7', badgeBg: '#d6e9f7', badgeColor: '#3477a3', ctaColor: '#3477a3', locked: lvl2Locked,
+        opacity: lvl2Locked ? 0.55 : 1, ctaIcon: s.level2Done ? Icon('check', { size: 13, color: '#3477a3' }) : Icon('chevronRight', { size: 13, color: '#3477a3' }),
+        cta: s.level2Done ? 'Completed · Replay' : 'Start level', onClick: () => !lvl2Locked && this.setState({ screen: 'level2' }) },
+      { num: 3, icon: Icon('search', { size: 18, color: '#6b53a8' }), title: 'Word Search', topic: 'STERILITY', desc: 'Match scenarios to sterility terms hidden in the grid.',
+        border: '#e6def7', badgeBg: '#e6def7', badgeColor: '#6b53a8', ctaColor: '#6b53a8', locked: lvl3Locked,
+        opacity: lvl3Locked ? 0.55 : 1, ctaIcon: s.level3Done ? Icon('check', { size: 13, color: '#6b53a8' }) : Icon('chevronRight', { size: 13, color: '#6b53a3' }),
+        cta: s.level3Done ? 'Completed · Replay' : 'Start level', onClick: () => !lvl3Locked && this.setState({ screen: 'level3' }) },
+    ];
+
+    const rules = [
+      { n: '1', title: 'Progress through 3 levels', body: 'Data Integrity → Personnel → Sterility, unlocked in order.' },
+      { n: '2', title: 'Use clue tokens wisely', body: 'Spend a token to reveal a letter, a match, or a row — you start with 3.' },
+      { n: '3', title: 'Get instant feedback', body: 'Correct answers lock in green; wrong ones flag red so you can retry.' },
+      { n: '4', title: 'Earn a +3 perfect bonus', body: 'Finish a level with no mistakes for a bonus on your score.' },
+    ];
+
+    const cols = 8, rows = 7;
+    const crosswordCells = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const key = r + '-' + c;
+      const cell = this.crosswordLetters[key];
+      crosswordCells.push({
+        col: c + 1, row: r + 1, active: !!cell,
+        number: cell ? cell[1] : null,
+        bg: cell ? '#f3effa' : 'transparent',
+        color: '#5c4b96',
+        value: '', onChange: () => {},
+      });
+    }
+
+    const level2Terms = this.terms.filter(t => !Object.values(s.matches).includes(t.id)).map(t => ({
+      label: t.label, onDragStart: (e) => e.dataTransfer.setData('term', t.id),
+    }));
+    const level2Defs = this.defs.map(d => {
+      const matchedId = s.matches[d.id];
+      const matched = this.terms.find(t => t.id === matchedId);
+      const correct = matchedId === d.correctTerm;
+      return {
+        text: d.text,
+        label: matched ? matched.label : 'Drop role here',
+        bg: matched ? (correct ? '#e3f6e9' : '#fde3e6') : '#f3effa',
+        border: matched ? (correct ? '#7fcf9c' : '#f0919e') : '#c3b3ea',
+        color: matched ? (correct ? '#2f8a54' : '#c9497b') : '#a68fd1',
+        onDrop: (e) => { e.preventDefault(); const termId = e.dataTransfer.getData('term');
+          this.setState(st => ({ matches: { ...st.matches, [d.id]: termId } })); },
+      };
+    });
+
+    const wordSearchRows = this.wordRowCells.map((cells, idx) => {
+      const found = s.foundWords.includes(idx);
+      return { cells, onClick: this.toggleFound(idx),
+        bg: found ? '#dff3e5' : '#f3effa', color: found ? '#2f8a54' : '#5c4b96' };
+    });
+    const scenarios = this.wordDefs.map((d, idx) => ({
+      word: d.word, clue: d.clue, found: s.foundWords.includes(idx),
+      bg: s.foundWords.includes(idx) ? '#eaf9ef' : '#fff',
+      borderColor: s.foundWords.includes(idx) ? '#a8dfba' : '#eae4f7',
+      onClick: this.toggleFound(idx),
+    }));
+
+    const statusFor = (done) => ({ status: done ? 'Complete' : 'Incomplete', statusColor: done ? '#4aa66b' : '#b3a6cf' });
+    const resultsRows = [
+      { level: 'Level 1', pillar: 'Data Integrity', ...statusFor(s.level1Done), points: 83 },
+      { level: 'Level 2', pillar: 'Personnel', ...statusFor(s.level2Done), points: 78 },
+      { level: 'Level 3', pillar: 'Sterility', ...statusFor(s.level3Done), points: 79 },
+    ];
+
+    return {
+      brandIcon: Icon('shieldCheck', { size: 14, color: '#fff' }),
+      keyIconSm: Icon('key', { size: 13, color: '#8b7cc9' }),
+      keyIconTiny: Icon('key', { size: 11, color: '#a68fd1' }),
+      bookIconLg: Icon('book', { size: 24, color: '#fff' }),
+      trophyIconLg: Icon('trophy', { size: 28, color: '#fff' }),
+      clueTokens: s.clueTokens, score: s.score,
+      isHome: s.screen === 'home', isInstructions: s.screen === 'instructions',
+      isLevel1: s.screen === 'level1', isLevel2: s.screen === 'level2', isLevel3: s.screen === 'level3',
+      isResults: s.screen === 'results',
+      goHome: this.goHome, goInstructions: this.goInstructions, goResults: this.goResults, resetGame: this.resetGame,
+      useClueToken: this.useClueToken, preventDefault: this.preventDefault,
+      submitLevel1: this.submitLevel1, submitLevel2: this.submitLevel2, submitLevel3: this.submitLevel3,
+      navItems, levelCards, rules,
+      crosswordCols: cols, crosswordCells, crosswordClues: this.clues,
+      level2Terms, level2Defs,
+      wordSearchRows, scenarios, resultsRows,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
