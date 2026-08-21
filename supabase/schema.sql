@@ -239,6 +239,39 @@ create table if not exists public.room_invites (
 comment on table public.room_invites is 'One row per invite. status is updated by the invitee on accept/decline; inserted by the inviter via sendInvite.';
 
 -- ============================================================
+-- Realtime publication membership
+--
+-- REQUIRED for any postgres_changes subscription to receive anything at all.
+-- Supabase only emits change events for tables that are members of the
+-- `supabase_realtime` publication, and tables are NOT added to it automatically
+-- when created. A subscription to a non-member table still reports SUBSCRIBED
+-- and then silently delivers zero events forever — which is exactly how this
+-- was originally missed (see ISSUES_AND_SOLUTIONS.md).
+--
+-- Wrapped in an idempotency guard because ALTER PUBLICATION ... ADD TABLE has
+-- no IF NOT EXISTS and errors on a re-run, and this whole file is meant to be
+-- safely re-runnable.
+-- ============================================================
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'challenge_rooms'
+    ) then
+      alter publication supabase_realtime add table public.challenge_rooms;
+    end if;
+
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'room_invites'
+    ) then
+      alter publication supabase_realtime add table public.room_invites;
+    end if;
+  end if;
+end $$;
+
+-- ============================================================
 -- Row Level Security
 -- ============================================================
 alter table public.players enable row level security;

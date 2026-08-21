@@ -9,14 +9,12 @@ import { Card } from '../../../src/components/ui/Card';
 import { Button } from '../../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../../src/theme';
-import { getRoomByCode, getRoomLeaderboard, submitAnswer, subscribeToRoom } from '../../../src/lib/roomService';
+import { getRoomLeaderboard, submitAnswer } from '../../../src/lib/roomService';
+import { useRoomSync } from '../../../src/hooks/useRoomSync';
 import { computeRoomAnswerScore } from '../../../src/lib/levelScoring';
 import { McqQuestion } from '../../../src/lib/mcqService';
-import { ChallengeRoomRow } from '../../../src/types/database';
 import { ensurePlayer } from '../../../src/lib/scoreSync';
 import { useGameStore } from '../../../src/store/useGameStore';
-
-type ScreenStatus = 'loading' | 'error' | 'not_found' | 'ready';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const;
 
@@ -28,39 +26,11 @@ export default function PlayRoomScreen() {
   const displayName = useGameStore((s) => s.displayName);
   const setPlayerId = useGameStore((s) => s.setPlayerId);
 
-  const [status, setStatus] = useState<ScreenStatus>('loading');
-  const [room, setRoom] = useState<ChallengeRoomRow | null>(null);
+  const { room, status, reload } = useRoomSync(code);
   const [selectedOption, setSelectedOption] = useState<0 | 1 | 2 | 3 | null>(null);
   const [lastResult, setLastResult] = useState<{ isCorrect: boolean; points: number } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-
-  const load = useCallback(async () => {
-    if (!code) return;
-    setStatus('loading');
-    const result = await getRoomByCode(code);
-    if (!result.ok) {
-      setStatus('error');
-      return;
-    }
-    if (!result.room) {
-      setStatus('not_found');
-      return;
-    }
-    setRoom(result.room);
-    setStatus('ready');
-  }, [code]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const roomId = room?.id ?? null;
-
-  useEffect(() => {
-    if (!roomId) return;
-    return subscribeToRoom(roomId, (updated) => setRoom(updated));
-  }, [roomId]);
 
   // A fresh question means a fresh answer slate, regardless of what happened
   // on the previous one.
@@ -127,7 +97,7 @@ export default function PlayRoomScreen() {
           <Feather name="wifi-off" size={32} color={colors.purple.muted} />
           <Text style={styles.errorTitle}>Couldn't load this room</Text>
           <Text style={styles.errorBody}>Something went wrong reaching the server. Please try again.</Text>
-          <Button label="Retry" onPress={() => void load()} style={styles.retryButton} />
+          <Button label="Retry" onPress={() => void reload()} style={styles.retryButton} />
         </View>
       ) : status === 'not_found' ? (
         <View style={styles.centered}>

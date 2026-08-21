@@ -5,13 +5,16 @@ import {
   createRoom,
   getQuestionAnswerTally,
   getRoomByCode,
+  getRoomById,
   getRoomLeaderboard,
   joinRoom,
+  shouldApplyRoomUpdate,
   submitAnswer,
   subscribeToPresence,
   subscribeToRoom,
 } from '../roomService';
 import { supabase } from '../supabase';
+import { ChallengeRoomRow } from '../../types/database';
 import { chainableSupabaseResult, createMockRealtimeChannel } from '../../testHelpers/supabaseMock';
 
 jest.mock('../supabase', () => ({ supabase: { from: jest.fn(), channel: jest.fn(), removeChannel: jest.fn() } }));
@@ -20,7 +23,7 @@ const mockedFrom = supabase.from as jest.Mock;
 const mockedChannel = supabase.channel as jest.Mock;
 const mockedRemoveChannel = supabase.removeChannel as jest.Mock;
 
-const roomRow = {
+const roomRow: ChallengeRoomRow = {
   id: 'room-1',
   code: 'AB3XQ9',
   host_player_id: 'player-1',
@@ -29,6 +32,7 @@ const roomRow = {
   phase: 'lobby',
   current_question_index: 0,
   phase_started_at: '2026-08-18T00:00:00.000Z',
+  question_duration_ms: 15000,
   created_at: '2026-08-18T00:00:00.000Z',
 };
 
@@ -141,12 +145,15 @@ describe('joinRoom', () => {
 describe('advancePhase', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('updates the phase and stamps a fresh phase_started_at', async () => {
-    mockedFrom.mockReturnValue(chainableSupabaseResult({ error: null }));
+  it('updates the phase, stamps a fresh phase_started_at, and returns the updated row', async () => {
+    const advanced = { ...roomRow, phase: 'question', current_question_index: 2 };
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: advanced, error: null }));
 
     const result = await advancePhase('room-1', 'question', 2);
 
-    expect(result).toEqual({ ok: true });
+    // Returning the row is what lets the host apply its own advance immediately
+    // instead of waiting on the realtime echo of its own write.
+    expect(result).toEqual({ ok: true, room: advanced });
     const updateBuilder = mockedFrom.mock.results[0].value;
     expect(updateBuilder.update).toHaveBeenCalledWith(
       expect.objectContaining({ phase: 'question', current_question_index: 2, phase_started_at: expect.any(String) })
@@ -154,7 +161,7 @@ describe('advancePhase', () => {
   });
 
   it('omits current_question_index when not given', async () => {
-    mockedFrom.mockReturnValue(chainableSupabaseResult({ error: null }));
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: roomRow, error: null }));
 
     await advancePhase('room-1', 'leaderboard');
 
@@ -163,11 +170,75 @@ describe('advancePhase', () => {
   });
 
   it('returns a db_error result on failure', async () => {
-    mockedFrom.mockReturnValue(chainableSupabaseResult({ error: { message: 'boom' } }));
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: null, error: { message: 'boom' } }));
 
     const result = await advancePhase('room-1', 'ended');
 
     expect(result).toEqual({ ok: false, kind: 'db_error' });
+  });
+
+  it('returns a db_error result when the update reports no error but returns no row', async () => {
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: null, error: null }));
+
+    const result = await advancePhase('room-1', 'ended');
+
+    expect(result).toEqual({ ok: false, kind: 'db_error' });
+  });
+});
+
+describe('getRoomById', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns the matching room', async () => {
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: roomRow, error: null }));
+
+    const result = await getRoomById('room-1');
+
+    expect(result).toEqual({ ok: true, room: roomRow });
+  });
+
+  it('returns a db_error result on failure', async () => {
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: null, error: { message: 'boom' } }));
+
+    const result = await getRoomById('room-1');
+
+    expect(result).toEqual({ ok: false, kind: 'db_error' });
+  });
+});
+
+describe('shouldApplyRoomUpdate', () => {
+  const at = (iso: string) => ({ ...roomRow, phase_started_at: iso });
+
+  it('applies any update when there is no current room yet', () => {
+    expect(shouldApplyRoomUpdate(null, roomRow)).toBe(true);
+  });
+
+  it('applies a strictly newer update', () => {
+    const current = at('2026-08-18T00:00:00.000Z');
+    const incoming = { ...at('2026-08-18T00:00:05.000Z'), phase: 'question' as const };
+
+    expect(shouldApplyRoomUpdate(current, incoming)).toBe(true);
+  });
+
+  it('rejects a stale update — a slow poll must never snap the room backwards', () => {
+    const current = { ...at('2026-08-18T00:00:05.000Z'), phase: 'question' as const };
+    const incoming = { ...at('2026-08-18T00:00:00.000Z'), phase: 'lobby' as const };
+
+    expect(shouldApplyRoomUpdate(current, incoming)).toBe(false);
+  });
+
+  it('rejects an identical update so the poll does not re-render every tick', () => {
+    expect(shouldApplyRoomUpdate(roomRow, { ...roomRow })).toBe(false);
+  });
+
+  it('applies an update for a different room id outright', () => {
+    expect(shouldApplyRoomUpdate(roomRow, { ...roomRow, id: 'room-2' })).toBe(true);
+  });
+
+  it('applies a same-timestamp update that changes the phase', () => {
+    const incoming = { ...roomRow, phase: 'reveal' as const };
+
+    expect(shouldApplyRoomUpdate(roomRow, incoming)).toBe(true);
   });
 });
 

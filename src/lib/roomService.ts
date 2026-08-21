@@ -54,6 +54,41 @@ export async function getRoomByCode(code: string): Promise<SyncResult<{ room: Ch
   }
 }
 
+/** By-id refetch used by the polling safety net in useRoomSync. */
+export async function getRoomById(roomId: string): Promise<SyncResult<{ room: ChallengeRoomRow | null }>> {
+  try {
+    const { data, error } = await supabase.from('challenge_rooms').select().eq('id', roomId).maybeSingle();
+    if (error) return { ok: false, kind: 'db_error' };
+    return { ok: true, room: data };
+  } catch (err) {
+    return { ok: false, kind: classifyError(err) };
+  }
+}
+
+/**
+ * Guards against out-of-order room updates. Two independent sources now feed
+ * room state (a realtime event and a polling refetch), so a slow poll response
+ * can land *after* a newer realtime event and would otherwise snap the UI
+ * backwards — e.g. from 'question' back to 'lobby' mid-round.
+ *
+ * phase_started_at is re-stamped on every advancePhase, so it totally orders
+ * room states. An update that is byte-identical in the fields the UI renders is
+ * also rejected, so the 3s poll doesn't trigger a pointless re-render (and
+ * restart the countdown effect) every single tick when nothing has changed.
+ */
+export function shouldApplyRoomUpdate(current: ChallengeRoomRow | null, incoming: ChallengeRoomRow): boolean {
+  if (!current) return true;
+  if (current.id !== incoming.id) return true;
+
+  const isSameState =
+    current.phase === incoming.phase &&
+    current.current_question_index === incoming.current_question_index &&
+    current.phase_started_at === incoming.phase_started_at;
+  if (isSameState) return false;
+
+  return new Date(incoming.phase_started_at).getTime() >= new Date(current.phase_started_at).getTime();
+}
+
 /** Idempotent: re-joining a room already joined is a no-op success. */
 export async function joinRoom(roomId: string, playerId: string, displayName: string): Promise<SyncResult<{ joined: true }>> {
   try {
@@ -83,7 +118,22 @@ export async function joinRoom(roomId: string, playerId: string, displayName: st
  * challenge_rooms_update_all). Always stamps a fresh phase_started_at so every
  * client derives its own countdown locally instead of needing a ticking broadcast.
  */
-export async function advancePhase(roomId: string, phase: RoomPhase, questionIndex?: number): Promise<SyncResult> {
+/**
+ * Host-only in intent (not RLS-enforced — see the schema.sql comment on
+ * challenge_rooms_update_all). Always stamps a fresh phase_started_at so every
+ * client derives its own countdown locally instead of needing a ticking broadcast.
+ *
+ * Returns the updated row so the caller can apply it to its own state
+ * immediately. The host must never wait on the realtime echo of its *own*
+ * write to see its own button take effect — that made START look completely
+ * dead whenever realtime was unavailable, and added a needless round-trip of
+ * latency even when it was working.
+ */
+export async function advancePhase(
+  roomId: string,
+  phase: RoomPhase,
+  questionIndex?: number
+): Promise<SyncResult<{ room: ChallengeRoomRow }>> {
   try {
     const update: { phase: RoomPhase; phase_started_at: string; current_question_index?: number } = {
       phase,
@@ -91,9 +141,9 @@ export async function advancePhase(roomId: string, phase: RoomPhase, questionInd
     };
     if (questionIndex !== undefined) update.current_question_index = questionIndex;
 
-    const { error } = await supabase.from('challenge_rooms').update(update).eq('id', roomId);
-    if (error) return { ok: false, kind: 'db_error' };
-    return { ok: true };
+    const { data, error } = await supabase.from('challenge_rooms').update(update).eq('id', roomId).select().single();
+    if (error || !data) return { ok: false, kind: 'db_error' };
+    return { ok: true, room: data };
   } catch (err) {
     return { ok: false, kind: classifyError(err) };
   }

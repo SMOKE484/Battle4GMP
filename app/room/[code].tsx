@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -9,20 +9,12 @@ import { Card } from '../../src/components/ui/Card';
 import { Button } from '../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../src/theme';
-import {
-  advancePhase,
-  getQuestionAnswerTally,
-  getRoomByCode,
-  getRoomLeaderboard,
-  subscribeToPresence,
-  subscribeToRoom,
-} from '../../src/lib/roomService';
+import { advancePhase, getQuestionAnswerTally, getRoomLeaderboard, subscribeToPresence } from '../../src/lib/roomService';
 import { sendInvite } from '../../src/lib/inviteService';
+import { useRoomSync } from '../../src/hooks/useRoomSync';
 import { McqQuestion } from '../../src/lib/mcqService';
-import { ChallengeRoomRow } from '../../src/types/database';
+import { RoomPhase } from '../../src/types/database';
 import { useGameStore } from '../../src/store/useGameStore';
-
-type ScreenStatus = 'loading' | 'error' | 'not_found' | 'ready';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const;
 
@@ -33,44 +25,20 @@ export default function HostRoomScreen() {
   const displayName = useGameStore((s) => s.displayName);
   const onlinePlayers = useGameStore((s) => s.onlinePlayers);
 
-  const [status, setStatus] = useState<ScreenStatus>('loading');
-  const [room, setRoom] = useState<ChallengeRoomRow | null>(null);
+  const { room, status, applyRoom, reload } = useRoomSync(code);
   const [presenceNames, setPresenceNames] = useState<string[]>([]);
   const [tally, setTally] = useState<[number, number, number, number] | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [now, setNow] = useState(Date.now());
   const [invitedPlayerIds, setInvitedPlayerIds] = useState<Set<string>>(new Set());
-
-  const load = useCallback(async () => {
-    if (!code) return;
-    setStatus('loading');
-    const result = await getRoomByCode(code);
-    if (!result.ok) {
-      setStatus('error');
-      return;
-    }
-    if (!result.room) {
-      setStatus('not_found');
-      return;
-    }
-    setRoom(result.room);
-    setStatus('ready');
-  }, [code]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
 
   const roomId = room?.id ?? null;
 
   useEffect(() => {
     if (!roomId) return;
-    const unsubRoom = subscribeToRoom(roomId, (updated) => setRoom(updated));
-    const unsubPresence = subscribeToPresence(roomId, playerId ?? 'host', displayName ?? 'Host', setPresenceNames);
-    return () => {
-      unsubRoom();
-      unsubPresence();
-    };
+    return subscribeToPresence(roomId, playerId ?? 'host', displayName ?? 'Host', setPresenceNames);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
@@ -90,11 +58,22 @@ export default function HostRoomScreen() {
 
   // Host auto-advances to reveal once the countdown runs out — nobody has to
   // tap anything for the room to keep moving, though "Reveal now" still lets
-  // the host cut a question short.
+  // the host cut a question short. The ref guard matters: `now` ticks every
+  // 250ms while the phase stays 'question' until the write resolves, so
+  // without it the deadline would fire several duplicate advances in a row.
+  const autoAdvancedForRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!room || !isHost || room.phase !== 'question') return;
     if (now < phaseDeadline) return;
-    void advancePhase(room.id, 'reveal');
+
+    const key = `${room.id}:${room.current_question_index}:${room.phase_started_at}`;
+    if (autoAdvancedForRef.current === key) return;
+    autoAdvancedForRef.current = key;
+
+    void advancePhase(room.id, 'reveal').then((result) => {
+      if (result.ok) applyRoom(result.room);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, room?.phase, isHost]);
 
@@ -130,11 +109,41 @@ export default function HostRoomScreen() {
     if (result.ok) setInvitedPlayerIds((prev) => new Set(prev).add(targetPlayerId));
   };
 
-  const handleStart = () => room && void advancePhase(room.id, 'question', 0);
-  const handleRevealNow = () => room && void advancePhase(room.id, 'reveal');
-  const handleShowLeaderboard = () => room && void advancePhase(room.id, 'leaderboard');
+  // Applies the row advancePhase returns straight to local state, so the host's
+  // own screen reacts to its own tap immediately instead of waiting on the
+  // realtime echo — and reports a failure inline rather than looking inert.
+  const runAdvance = async (phase: RoomPhase, questionIndex?: number) => {
+    if (!room || advancing) return;
+    setAdvancing(true);
+    setActionError(null);
+
+    const result = await advancePhase(room.id, phase, questionIndex);
+    if (result.ok) {
+      applyRoom(result.room);
+    } else {
+      setActionError(
+        result.kind === 'network'
+          ? "Couldn't reach the server — the room didn't move on. Check your connection and try again."
+          : "Couldn't move the room on. Please try again."
+      );
+    }
+    setAdvancing(false);
+  };
+
+  // Shown inline beside whichever host control was just tapped — per AGENTS.md,
+  // a failed advance must never look like the button simply did nothing.
+  const hostActionError = actionError ? (
+    <View style={styles.actionNotice}>
+      <Feather name="alert-circle" size={14} color={colors.error.text} />
+      <Text style={styles.actionNoticeText}>{actionError}</Text>
+    </View>
+  ) : null;
+
+  const handleStart = () => void runAdvance('question', 0);
+  const handleRevealNow = () => void runAdvance('reveal');
+  const handleShowLeaderboard = () => void runAdvance('leaderboard');
   const handleNextQuestion = () =>
-    room && void advancePhase(room.id, isLastQuestion ? 'ended' : 'question', isLastQuestion ? undefined : room.current_question_index + 1);
+    void runAdvance(isLastQuestion ? 'ended' : 'question', isLastQuestion ? undefined : (room?.current_question_index ?? 0) + 1);
 
   return (
     <GradientScreen>
@@ -150,7 +159,7 @@ export default function HostRoomScreen() {
           <Feather name="wifi-off" size={32} color={colors.purple.muted} />
           <Text style={styles.errorTitle}>Couldn't load this room</Text>
           <Text style={styles.errorBody}>Something went wrong reaching the server. Please try again.</Text>
-          <Button label="Retry" onPress={() => void load()} style={styles.retryButton} />
+          <Button label="Retry" onPress={() => void reload()} style={styles.retryButton} />
         </View>
       ) : status === 'not_found' ? (
         <View style={styles.centered}>
@@ -204,7 +213,8 @@ export default function HostRoomScreen() {
                   </Card>
                 ) : null}
 
-                {isHost ? <Button label="START →" onPress={handleStart} style={styles.actionButton} /> : null}
+                {isHost ? hostActionError : null}
+                {isHost ? <Button label="START →" onPress={handleStart} loading={advancing} style={styles.actionButton} /> : null}
               </View>
             ) : room.phase === 'question' ? (
               <View style={styles.centered}>
@@ -214,7 +224,10 @@ export default function HostRoomScreen() {
                 <Text style={styles.countdown}>{secondsLeft}</Text>
                 <Text style={styles.promptText}>{currentQuestion?.prompt}</Text>
                 <Text style={styles.subtitle}>Answer on your phone now — options aren't shown here on purpose.</Text>
-                {isHost ? <Button label="Reveal Now" variant="secondary" onPress={handleRevealNow} style={styles.actionButton} /> : null}
+                {isHost ? hostActionError : null}
+                {isHost ? (
+                  <Button label="Reveal Now" variant="secondary" onPress={handleRevealNow} loading={advancing} style={styles.actionButton} />
+                ) : null}
               </View>
             ) : room.phase === 'reveal' ? (
               <View style={styles.centered}>
@@ -234,7 +247,10 @@ export default function HostRoomScreen() {
                     );
                   })}
                 </View>
-                {isHost ? <Button label="Show Leaderboard →" onPress={handleShowLeaderboard} style={styles.actionButton} /> : null}
+                {isHost ? hostActionError : null}
+                {isHost ? (
+                  <Button label="Show Leaderboard →" onPress={handleShowLeaderboard} loading={advancing} style={styles.actionButton} />
+                ) : null}
               </View>
             ) : room.phase === 'leaderboard' ? (
               <View>
@@ -246,10 +262,12 @@ export default function HostRoomScreen() {
                 ) : (
                   <LeaderboardList rows={leaderboard} />
                 )}
+                {isHost ? hostActionError : null}
                 {isHost ? (
                   <Button
                     label={isLastQuestion ? 'End Room →' : 'Next Question →'}
                     onPress={handleNextQuestion}
+                    loading={advancing}
                     style={styles.actionButton}
                   />
                 ) : null}
@@ -371,6 +389,22 @@ const styles = StyleSheet.create({
   inviteButton: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
+  },
+  actionNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs + 2,
+    backgroundColor: colors.error.bg,
+    borderRadius: 12,
+    padding: spacing.sm + 2,
+    marginTop: spacing.lg,
+    width: '100%',
+  },
+  actionNoticeText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    color: colors.error.text,
+    lineHeight: 16,
   },
   actionButton: {
     marginTop: spacing.xl,

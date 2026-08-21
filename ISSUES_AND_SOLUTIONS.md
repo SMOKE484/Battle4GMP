@@ -333,3 +333,68 @@ a genuinely web-safe prefetch is wanted later, derive the URI from the resolved 
 directly (on web, a `require()`'d image typically already resolves to a plain string/URL at
 bundle time, no `resolveAssetSource` call needed) rather than branching platform behavior inside
 a shared native API call.
+
+---
+
+## Realtime never fires: host clicks START and nothing happens until a manual refresh
+
+**Found:** user reported that on web, clicking START on a Rapid Round did nothing — no phase
+change on the host's own screen, nothing on the players' screens — until the page was manually
+refreshed, and even then it didn't feel immediate. Reported as "the real-time is not working
+properly".
+
+**Root cause — two independent defects that compounded into this one symptom:**
+
+**1. The tables were never added to the `supabase_realtime` publication.** Supabase only emits
+`postgres_changes` events for tables that are explicit members of that publication, and tables
+are *not* added automatically when created. `supabase/schema.sql` created `challenge_rooms` (and
+later `room_invites`) but never ran `alter publication supabase_realtime add table ...`, so every
+`subscribeToRoom`/`subscribeToInvites` channel connected, reported `SUBSCRIBED`, and then
+delivered exactly zero events forever. Confirmed against Supabase's own postgres-changes docs
+before changing anything, not assumed. **This is a genuinely silent failure mode** — there is no
+error, no warning, and the subscription status looks perfectly healthy, which is precisely why it
+survived the original build and its review.
+
+**2. The host's own screen depended on the realtime echo of its own write.** `handleStart` in
+`app/room/[code].tsx` was `() => room && void advancePhase(room.id, 'question', 0)` — it wrote
+the new phase to Postgres and never touched local state, waiting for the change to come back
+around via `subscribeToRoom` to re-render. So with defect 1 in play, the host's own START button
+was completely inert; and even with realtime healthy it would still have added a needless
+round-trip of dead time on every host action. It was also fire-and-forget (`void`), so a failed
+`advancePhase` produced no feedback whatsoever — a silent failure on the single most important
+button in the feature, contrary to AGENTS.md's "every action must have a visible, predictable
+result" and "the worst error is a silent failure".
+
+The "even when I refresh it doesn't show immediately" part is explained by defect 2: a refresh
+refetches the room, but if the host's own advance never actually landed (or the host had to
+re-click), there was nothing new to fetch.
+
+**Fix (three parts — the first is the root cause, the other two make the feature degrade
+gracefully rather than silently):**
+- `supabase/schema.sql` — adds `challenge_rooms` and `room_invites` to the `supabase_realtime`
+  publication, wrapped in a `do $$ ... $$` idempotency guard (ALTER PUBLICATION has no
+  `IF NOT EXISTS` and errors on a re-run; this file is meant to be re-runnable) plus a guard for
+  the publication itself existing at all.
+- `advancePhase` now returns the updated row (`.select().single()`), and every host action in
+  `app/room/[code].tsx` goes through a `runAdvance` helper that applies that returned row to
+  local state immediately, disables the control while in flight, and renders an inline error
+  beside the button on failure. The host no longer depends on realtime to see its own action.
+- **A polling safety net**, in the new shared `src/hooks/useRoomSync.ts` (now used by both room
+  screens): alongside the realtime subscription, it refetches the room every
+  `ROOM_POLL_INTERVAL_MS` (3s). This is deliberately **not** gated on realtime reporting an
+  error — the actual failure here was a channel that reported `SUBSCRIBED` and delivered nothing,
+  so status-gated polling would not have rescued it. All updates (realtime and poll alike) funnel
+  through `shouldApplyRoomUpdate`, which rejects stale and byte-identical updates so a slow poll
+  response can never snap the room backwards (e.g. 'question' → back to 'lobby') or re-render the
+  countdown every 3s.
+- Also fixed while in here: the countdown auto-advance effect could fire several duplicate
+  `advancePhase` calls, since `now` ticks every 250ms while the phase stays `'question'` until
+  the write resolves. Now guarded by a ref keyed on room+question+phase_started_at.
+
+**How to avoid regressing this:** any new table that a client subscribes to via
+`postgres_changes` **must** be added to the `supabase_realtime` publication in `schema.sql` —
+adding the table and its RLS policies is not enough, and nothing will error to tell you.
+Separately, never let a client's own write depend on the realtime echo to update that same
+client's UI: apply the authoritative row the write returns, and treat realtime as the mechanism
+for informing *other* clients. Note that the schema changes here (like every prior multiplayer
+session's) must be applied to the live Supabase project before any of this takes effect.
