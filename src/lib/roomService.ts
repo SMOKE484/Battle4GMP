@@ -1,16 +1,19 @@
 import { supabase } from './supabase';
 import { generateJoinCode } from './joinCode';
 import { McqQuestion } from './mcqService';
-import { ChallengeRoomLeaderboardRow, ChallengeRoomRow, QuestionTopic, RoomPhase } from '../types/database';
+import { ChallengeRoomLeaderboardRow, ChallengeRoomRow, RoomPhase, RoomTopic } from '../types/database';
 import { SyncErrorKind, SyncResult } from './scoreSync';
 
 const MAX_CODE_ATTEMPTS = 5;
 const UNIQUE_VIOLATION = '23505';
 
-// How long each question stays open before the host can reveal — shared by the
-// host's countdown display and computeRoomAnswerScore's speed bonus, so both
-// sides of the room agree on the same window.
+// Default question duration for topic-based rooms — shared by the host's
+// countdown display and computeRoomAnswerScore's speed bonus, so both sides of
+// the room agree on the same window. Stored per-room (question_duration_ms) so
+// a room can override it, e.g. Rapid Round's shorter window below.
 export const QUESTION_DURATION_MS = 15000;
+export const RAPID_QUESTION_DURATION_MS = 20000;
+export const RAPID_QUESTION_COUNT = 10;
 
 function classifyError(err: unknown): SyncErrorKind {
   // fetch-level network failures (offline, DNS, etc.) surface as TypeError from the fetch spec
@@ -19,15 +22,16 @@ function classifyError(err: unknown): SyncErrorKind {
 
 export async function createRoom(
   hostPlayerId: string,
-  topic: QuestionTopic,
-  questions: McqQuestion[]
+  topic: RoomTopic,
+  questions: McqQuestion[],
+  questionDurationMs: number = QUESTION_DURATION_MS
 ): Promise<SyncResult<{ room: ChallengeRoomRow }>> {
   try {
     for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
       const code = generateJoinCode();
       const { data, error } = await supabase
         .from('challenge_rooms')
-        .insert({ code, host_player_id: hostPlayerId, topic, question_set: questions })
+        .insert({ code, host_player_id: hostPlayerId, topic, question_set: questions, question_duration_ms: questionDurationMs })
         .select()
         .single();
 

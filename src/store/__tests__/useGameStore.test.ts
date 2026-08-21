@@ -29,6 +29,8 @@ function resetStore() {
     hasSeenInstructions: { 1: false, 2: false, 3: false },
     pendingSync: [],
     hasHydrated: true,
+    onlinePlayers: [],
+    pendingInvite: null,
   });
 }
 
@@ -198,5 +200,38 @@ describe('useGameStore', () => {
     expect(state.deviceId).toBe('device-test');
     expect(state.pendingSync).toHaveLength(1);
     expect(state.hasSeenInstructions).toEqual({ 1: true, 2: false, 3: false });
+  });
+
+  it('setOnlinePlayers replaces the roster', () => {
+    useGameStore.getState().setOnlinePlayers([{ playerId: 'player-2', displayName: 'Sam' }]);
+
+    expect(useGameStore.getState().onlinePlayers).toEqual([{ playerId: 'player-2', displayName: 'Sam' }]);
+  });
+
+  it('setPendingInvite replaces any invite already showing, clearPendingInvite clears it', () => {
+    const first = { id: 'invite-1', roomId: 'room-1', roomCode: 'AB3XQ9', inviterDisplayName: 'Jordan' };
+    const second = { id: 'invite-2', roomId: 'room-2', roomCode: 'ZZ9YQ1', inviterDisplayName: 'Sam' };
+
+    useGameStore.getState().setPendingInvite(first);
+    expect(useGameStore.getState().pendingInvite).toEqual(first);
+
+    useGameStore.getState().setPendingInvite(second);
+    expect(useGameStore.getState().pendingInvite).toEqual(second);
+
+    useGameStore.getState().clearPendingInvite();
+    expect(useGameStore.getState().pendingInvite).toBeNull();
+  });
+
+  it('excludes onlinePlayers/pendingInvite from what gets persisted to AsyncStorage', () => {
+    useGameStore.setState({
+      onlinePlayers: [{ playerId: 'player-2', displayName: 'Sam' }],
+      pendingInvite: { id: 'invite-1', roomId: 'room-1', roomCode: 'AB3XQ9', inviterDisplayName: 'Jordan' },
+    });
+
+    const partialize = useGameStore.persist.getOptions().partialize;
+    const persisted = partialize ? partialize(useGameStore.getState()) : useGameStore.getState();
+
+    expect(persisted).not.toHaveProperty('onlinePlayers');
+    expect(persisted).not.toHaveProperty('pendingInvite');
   });
 });

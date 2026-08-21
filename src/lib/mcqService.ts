@@ -92,3 +92,59 @@ export async function generateMcqQuestions(
 
   return buildQuestions(picked, pool, rng);
 }
+
+const ALL_TOPICS: QuestionTopic[] = ['data_integrity', 'personnel', 'sterility'];
+
+/**
+ * Splits `count` as evenly as possible across ALL_TOPICS. Which topic(s) get the
+ * extra +1 (when count doesn't divide evenly) is randomized via rng rather than
+ * always landing on the same topic, so a Rapid Round's mix isn't subtly biased
+ * run after run.
+ */
+function splitCountAcrossTopics(count: number, rng: () => number): Map<QuestionTopic, number> {
+  const base = Math.floor(count / ALL_TOPICS.length);
+  const remainder = count % ALL_TOPICS.length;
+  const extraTopics = new Set(shuffledCopy(ALL_TOPICS, rng).slice(0, remainder));
+
+  const counts = new Map<QuestionTopic, number>();
+  for (const topic of ALL_TOPICS) {
+    counts.set(topic, base + (extraTopics.has(topic) ? 1 : 0));
+  }
+  return counts;
+}
+
+/**
+ * Rapid Round: pulls questions from all 3 topics in one set instead of one.
+ * Each topic is generated (DeepSeek → static fallback) fully independently, so
+ * one topic's DeepSeek hiccup doesn't wipe out the other two's fresh wording —
+ * same reasoning as generateMcqQuestions' own per-call fallback, just applied
+ * 3 times instead of once. Distractors for a given question are always drawn
+ * from that question's own topic pool (matching generateMcqQuestions), so
+ * cross-topic answer options never make a question trivially guessable by
+ * category. Final question order is shuffled so topics aren't grouped together.
+ */
+export async function generateMixedMcqQuestions(count: number, rng: () => number = Math.random): Promise<McqQuestion[]> {
+  const perTopicCount = splitCountAcrossTopics(count, rng);
+
+  const perTopicQuestions = await Promise.all(
+    ALL_TOPICS.map(async (topic) => {
+      const topicCount = perTopicCount.get(topic) ?? 0;
+      if (topicCount === 0) return [];
+
+      const pool = poolForTopic(topic);
+      const picked = shuffledCopy(pool, rng).slice(0, Math.min(topicCount, pool.length));
+      const pickedTermNames = picked.map((p) => p.term);
+
+      try {
+        const generated = await generateEntriesForTopic(topic, pickedTermNames);
+        return buildQuestions(generated, pool, rng);
+      } catch (err) {
+        if (!(err instanceof DeepSeekError)) throw err;
+      }
+
+      return buildQuestions(picked, pool, rng);
+    })
+  );
+
+  return shuffledCopy(perTopicQuestions.flat(), rng);
+}

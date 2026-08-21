@@ -9,13 +9,7 @@ import { Card } from '../../../src/components/ui/Card';
 import { Button } from '../../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../../src/theme';
-import {
-  QUESTION_DURATION_MS,
-  getRoomByCode,
-  getRoomLeaderboard,
-  submitAnswer,
-  subscribeToRoom,
-} from '../../../src/lib/roomService';
+import { getRoomByCode, getRoomLeaderboard, submitAnswer, subscribeToRoom } from '../../../src/lib/roomService';
 import { computeRoomAnswerScore } from '../../../src/lib/levelScoring';
 import { McqQuestion } from '../../../src/lib/mcqService';
 import { ChallengeRoomRow } from '../../../src/types/database';
@@ -110,7 +104,7 @@ export default function PlayRoomScreen() {
 
     const isCorrect = optionIndex === currentQuestion.correctIndex;
     const answerMs = Math.max(0, Date.now() - new Date(room.phase_started_at).getTime());
-    const points = computeRoomAnswerScore(isCorrect, answerMs, QUESTION_DURATION_MS);
+    const points = computeRoomAnswerScore(isCorrect, answerMs, room.question_duration_ms);
     setLastResult({ isCorrect, points });
 
     const result = await submitAnswer(room.id, submitterId, room.current_question_index, optionIndex, isCorrect, answerMs, points);

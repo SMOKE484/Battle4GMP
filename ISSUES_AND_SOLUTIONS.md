@@ -238,3 +238,98 @@ for Stage 1 (still resolves the same player row either way) — this fix is what
 `ensurePlayer(deviceId, ...)` call (rather than going through `completeLevel`/
 `flushPendingSync`) must call `useGameStore.getState().setPlayerId(...)` (or the hook form) on
 success, so the store never silently drifts from the last-resolved identity.
+
+---
+
+## Uninstalling and reinstalling the app creates a duplicate `players` row instead of recovering the original
+
+**Found:** user reported that after uninstalling and reinstalling the app, it prompts for a
+display name again and creates a *new* account rather than recognizing the same person — even
+though nothing about the physical device changed. Confirmed against a live data pull from
+`players`: duplicate `display_name`s ("Anonymous Pharmacist" ×4, "jhhzqy" ×3, "Phathu" ×2), each
+row on a different `device_id`, several minted minutes apart — consistent with exactly this
+happening repeatedly during testing.
+
+**Root cause:** `src/lib/deviceId.ts`'s `getOrCreateDeviceId()` stored the anonymous `device_id`
+*only* in AsyncStorage. AsyncStorage is deleted when an app is uninstalled (iOS and Android
+alike), so on reinstall `getOrCreateDeviceId()` found nothing cached and minted a brand-new random
+id. `ensurePlayer()` in `scoreSync.ts` then looked that new id up in `players`, found no match,
+and inserted a fresh row — orphaning the original row and its score history. The schema comment
+in `supabase/schema.sql` ("One row per device/session") documents device-scoped identity as the
+intent, but AsyncStorage is install-scoped, not device-scoped, so the storage layer didn't match
+the intent.
+
+**Fix:** when AsyncStorage is empty (fresh install *or* reinstall — indistinguishable from inside
+the app), fall back to a platform store that actually outlives an uninstall, checked against the
+versioned Expo SDK 57 docs rather than assumed:
+- **Android:** `Application.getAndroidId()` (`expo-application`) reads
+  `Settings.Secure.ANDROID_ID`, which is stable across reinstall (same signing key, no factory
+  reset) — used directly as the `device_id`, no storage needed.
+- **iOS:** the Keychain (unlike UserDefaults/AsyncStorage) is not cleared on uninstall when the
+  app is reinstalled with the same bundle ID. Switched to `expo-secure-store` (Keychain-backed):
+  on an empty AsyncStorage, check the Keychain first — a reinstall recovers the previous id
+  exactly; only mint+store a new random id there on a genuine first install.
+- **Web:** unchanged (AsyncStorage/localStorage) — there's no meaningful "uninstall" concept.
+- Any read/write failure on the platform store falls through to the old behavior (a fresh random
+  id), so this can never regress below what existed before.
+- Existing installs are untouched: `getOrCreateDeviceId()` still returns the cached AsyncStorage
+  id immediately when one is present, so shipping this fix doesn't fragment anyone already mid-use.
+
+Added `src/lib/__tests__/deviceId.test.ts` covering: cached-id short-circuit, Android happy path +
+empty-id fallback + throw fallback, iOS Keychain-recovery + first-install-mint + read-throw +
+write-throw fallback, and web's unchanged behavior.
+
+**How to avoid regressing this:** never revert `device_id` generation to a single
+AsyncStorage-only source — that's exactly what breaks reinstall recovery. This is a best-effort
+fix, not a guarantee: Android ID still resets on factory reset or an app signing-key change, and
+Apple doesn't officially guarantee Keychain-survives-uninstall behavior (though Expo's own docs
+rely on it). It also does not let a player recover their account on a *different* device — only
+reinstall-on-the-same-device — that would require real auth (email/magic-link), a separate,
+larger feature. The already-duplicated rows from before this fix (see the sample above) are not
+retroactively merged — that would need a one-off manual cleanup pass in Supabase, not code.
+
+---
+
+## Web target: clicking "Play" on any level (solo or via a multiplayer/challenge attempt) shows a white screen
+
+**Found:** user reported that on the web build (`npm run web`), tapping Play on any level — and
+also via the multiplayer flow — turned the screen completely white, with a console error:
+`Uncaught TypeError: n.default.resolveAssetSource is not a function` inside a minified
+`Array.forEach`.
+
+**Root cause:** `src/components/LevelInstructions.tsx`'s image-prefetch effect (added in the
+"overlay flashes the previous step's mascot" fix, logged above) called
+`Image.resolveAssetSource(s.image.source)` for every instruction step with an image, to get a
+URI to hand to `Image.prefetch`. `Image.resolveAssetSource` is a **native-platform-only** static
+utility (it turns a `require()`'d numeric asset id into a real `{uri, width, height, scale}`) —
+`react-native-web`'s `Image` export doesn't implement it at all, so on web it's `undefined`, and
+calling it throws a `TypeError`. This ran inside a `useEffect`, and since this app has no error
+boundary anywhere, an uncaught error there unmounted the *entire* React tree — hence a blank
+white screen rather than a contained failure.
+
+This reproduced on **every** level with at least one instruction image (Level 1 has 4, in
+`LEVEL1_INSTRUCTIONS`) — explaining both repro paths the user reported as separate: opening a
+level directly, and "Play" from the multiplayer/challenge flow, since a challenge attempt
+(`challengeId` route param) reuses the exact same `app/level1.tsx`/`level2.tsx`/`level3.tsx`
+screens, which mount the same `LevelInstructions` component on first visit.
+
+This crash is web-only and was never caught by the assistant's own type-checking (`Image` is
+still a valid import, `resolveAssetSource` exists in React Native's own type definitions — the
+break is purely a *runtime* platform gap, invisible to `tsc`), and per AGENTS.md rule 5 hands-on
+UI verification is the user's job, not something driven automatically each session — this is
+exactly the kind of bug that only surfaces on an actual run.
+
+**Fix:** guarded the whole prefetch effect to skip on web (`Platform.OS === 'web'`), rather than
+trying to hand-roll a web-safe URI resolver for a purely cosmetic optimization. This means web
+reverts to the pre-existing, already-documented (non-crashing) "flash of the previous mascot on
+Next" behavior instead of prefetching — native platforms (where `resolveAssetSource` is required
+and actually works) are completely unaffected.
+
+**How to avoid regressing this:** never call `Image.resolveAssetSource` (or any other
+native-only static RN API) without checking it's actually needed on web first — react-native-web
+does not implement every static utility React Native ships, and a crash inside a `useEffect` with
+no error boundary in this app takes down the whole screen, not just the feature that used it. If
+a genuinely web-safe prefetch is wanted later, derive the URI from the resolved `source` prop
+directly (on web, a `require()`'d image typically already resolves to a plain string/URL at
+bundle time, no `resolveAssetSource` call needed) rather than branching platform behavior inside
+a shared native API call.

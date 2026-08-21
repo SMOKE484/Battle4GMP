@@ -1,4 +1,6 @@
 import {
+  QUESTION_DURATION_MS,
+  RAPID_QUESTION_DURATION_MS,
   advancePhase,
   createRoom,
   getQuestionAnswerTally,
@@ -39,6 +41,26 @@ describe('createRoom', () => {
     const result = await createRoom('player-1', 'sterility', []);
 
     expect(result).toEqual({ ok: true, room: roomRow });
+  });
+
+  it('defaults question_duration_ms to QUESTION_DURATION_MS when not given', async () => {
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: roomRow, error: null }));
+
+    await createRoom('player-1', 'sterility', []);
+
+    const insertBuilder = mockedFrom.mock.results[0].value;
+    expect(insertBuilder.insert).toHaveBeenCalledWith(expect.objectContaining({ question_duration_ms: QUESTION_DURATION_MS }));
+  });
+
+  it('passes through an overridden question_duration_ms (Rapid Round)', async () => {
+    mockedFrom.mockReturnValue(chainableSupabaseResult({ data: roomRow, error: null }));
+
+    await createRoom('player-1', 'mixed', [], RAPID_QUESTION_DURATION_MS);
+
+    const insertBuilder = mockedFrom.mock.results[0].value;
+    expect(insertBuilder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'mixed', question_duration_ms: RAPID_QUESTION_DURATION_MS })
+    );
   });
 
   it('retries with a fresh code on a unique-constraint collision, then succeeds', async () => {

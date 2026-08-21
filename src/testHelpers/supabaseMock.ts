@@ -5,7 +5,7 @@
 // while `.single()`/`.maybeSingle()` resolve explicitly for select chains.
 export function chainableSupabaseResult(finalResult: unknown) {
   const builder: Record<string, unknown> = {};
-  for (const method of ['select', 'eq', 'order', 'limit', 'insert', 'update']) {
+  for (const method of ['select', 'eq', 'order', 'limit', 'insert', 'update', 'upsert']) {
     builder[method] = jest.fn(() => builder);
   }
   builder.single = jest.fn(async () => finalResult);

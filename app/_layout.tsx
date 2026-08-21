@@ -14,6 +14,9 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors, setFontsAvailable } from '../src/theme';
 import { useGameStore } from '../src/store/useGameStore';
+import { subscribeToLobbyPresence } from '../src/lib/presenceService';
+import { getPendingInvitesForPlayer, subscribeToInvites } from '../src/lib/inviteService';
+import { IncomingInviteBanner } from '../src/components/multiplayer/IncomingInviteBanner';
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -30,6 +33,10 @@ export default function RootLayout() {
   const initDeviceId = useGameStore((s) => s.initDeviceId);
   const flushPendingSync = useGameStore((s) => s.flushPendingSync);
   const hasHydrated = useGameStore((s) => s.hasHydrated);
+  const playerId = useGameStore((s) => s.playerId);
+  const displayName = useGameStore((s) => s.displayName);
+  const setOnlinePlayers = useGameStore((s) => s.setOnlinePlayers);
+  const setPendingInvite = useGameStore((s) => s.setPendingInvite);
 
   useEffect(() => {
     // A font-load failure shouldn't produce a permanently stuck loading screen —
@@ -46,6 +53,45 @@ export default function RootLayout() {
       void flushPendingSync();
     });
   }, [hasHydrated, initDeviceId, flushPendingSync]);
+
+  // App-wide presence + invite delivery: starts as soon as playerId is resolved
+  // (flushPendingSync above already resolves it on first launch regardless of
+  // whether a display name has been chosen yet) and stays open for the whole
+  // session, so a player is invitable no matter what screen they're on.
+  useEffect(() => {
+    if (!playerId) return;
+    const name = displayName ?? 'Anonymous Pharmacist';
+    const currentPlayerId = playerId;
+
+    const unsubscribePresence = subscribeToLobbyPresence(currentPlayerId, name, setOnlinePlayers);
+    const unsubscribeInvites = subscribeToInvites(currentPlayerId, (invite) => {
+      setPendingInvite({
+        id: invite.id,
+        roomId: invite.room_id,
+        roomCode: invite.room_code,
+        inviterDisplayName: invite.inviter_display_name,
+      });
+    });
+
+    // Catch-up fetch for an invite sent while the app was closed (before this
+    // subscription existed) — takes the oldest still-pending one if there are
+    // several, same "one visible at a time" contract as setPendingInvite.
+    void getPendingInvitesForPlayer(currentPlayerId).then((result) => {
+      if (!result.ok || result.invites.length === 0) return;
+      const oldest = [...result.invites].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+      setPendingInvite({
+        id: oldest.id,
+        roomId: oldest.room_id,
+        roomCode: oldest.room_code,
+        inviterDisplayName: oldest.inviter_display_name,
+      });
+    });
+
+    return () => {
+      unsubscribePresence();
+      unsubscribeInvites();
+    };
+  }, [playerId, displayName, setOnlinePlayers, setPendingInvite]);
 
   if (!ready) {
     return (
@@ -75,6 +121,7 @@ export default function RootLayout() {
         <Stack.Screen name="room/[code]" />
         <Stack.Screen name="room/[code]/play" />
       </Stack>
+      <IncomingInviteBanner />
     </GestureHandlerRootView>
   );
 }

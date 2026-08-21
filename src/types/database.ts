@@ -73,15 +73,21 @@ export type ChallengeLeaderboardRow = {
 
 export type RoomPhase = 'lobby' | 'question' | 'reveal' | 'leaderboard' | 'ended';
 
+// 'mixed' is only ever valid for challenge_rooms (Rapid Round) — QuestionTopic
+// itself stays the 3 real topics, since that's what cached_questions and the
+// solo-level generators use, and 'mixed' has no meaning there.
+export type RoomTopic = QuestionTopic | 'mixed';
+
 export type ChallengeRoomRow = {
   id: string;
   code: string;
   host_player_id: string;
-  topic: QuestionTopic;
+  topic: RoomTopic;
   question_set: unknown;
   phase: RoomPhase;
   current_question_index: number;
   phase_started_at: string;
+  question_duration_ms: number;
   created_at: string;
 };
 
@@ -112,6 +118,19 @@ export type ChallengeRoomLeaderboardRow = {
   total_points: number;
   correct_count: number;
   last_answered_at: string;
+};
+
+export type InviteStatus = 'pending' | 'accepted' | 'declined';
+
+export type RoomInviteRow = {
+  id: string;
+  room_id: string;
+  room_code: string;
+  inviter_player_id: string;
+  inviter_display_name: string;
+  invitee_player_id: string;
+  status: InviteStatus;
+  created_at: string;
 };
 
 export type Database = {
@@ -158,7 +177,7 @@ export type Database = {
         Insert: Partial<ChallengeRoomRow> & {
           code: string;
           host_player_id: string;
-          topic: QuestionTopic;
+          topic: RoomTopic;
           question_set: unknown;
         };
         Update: Partial<ChallengeRoomRow>;
@@ -182,6 +201,18 @@ export type Database = {
           points: number;
         };
         Update: Partial<ChallengeRoomAnswerRow>;
+        Relationships: [];
+      };
+      room_invites: {
+        Row: RoomInviteRow;
+        Insert: Partial<RoomInviteRow> & {
+          room_id: string;
+          room_code: string;
+          inviter_player_id: string;
+          inviter_display_name: string;
+          invitee_player_id: string;
+        };
+        Update: Partial<RoomInviteRow>;
         Relationships: [];
       };
     };

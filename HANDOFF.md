@@ -1,13 +1,208 @@
 # HANDOFF — BATTLE4GMP
 
-Last updated: 2026-08-18 (same-day follow-up: **Stage 2 (Live Host Room) is now also
-fully implemented**, immediately after Stage 1 in the same session — the user chose to
-proceed with Stage 2 before hands-on verifying Stage 1, so **both stages are now
-built and both need hands-on verification**, and neither has been schema-applied to
-Supabase yet. See "Multiplayer Stage 2 — Live Host Room: IMPLEMENTED, needs hands-on
-verification" and the Stage 1 section right below it. Prior session's work
-(2026-08-17, Level 3 rebuild + diagonals, sound effects, term pool expansion) is all
-still current/unchanged and preserved further below.
+Last updated: 2026-08-21 — **two pieces of work this session, both IMPLEMENTED, neither
+hands-on verified yet, and the schema has new changes not yet applied to Supabase.**
+See "Reinstall identity fix" and "Rapid Round + online presence/invites" below (in that
+order — the identity fix happened first). Everything from 2026-08-18 (Stage 1 Async
+Challenge + Stage 2 Live Host Room) and 2026-08-17 (Level 3 rebuild etc.) is preserved
+further below and still current/unchanged, except where this session's work explicitly
+touches Stage 2's room code (called out inline below).
+
+## Reinstall identity fix: device_id now survives uninstall/reinstall (2026-08-21)
+
+User reported that uninstalling and reinstalling the app creates a **new** `players` row
+instead of recovering the original — confirmed against live data (`players` had several
+duplicate `display_name`s, each on a different `device_id`, minted minutes apart, from
+repeated reinstalls during testing). Root cause: `src/lib/deviceId.ts`'s
+`getOrCreateDeviceId()` stored the anonymous `device_id` only in AsyncStorage, which is
+wiped on uninstall (both platforms). Full root-cause writeup and fix rationale is logged
+in `ISSUES_AND_SOLUTIONS.md` ("Uninstalling and reinstalling the app creates a duplicate
+players row instead of recovering the original") — not repeated here.
+
+**Fix, in one line**: when AsyncStorage is empty (fresh install *or* reinstall,
+indistinguishable from inside the app), fall back to a platform store that actually
+outlives an uninstall — `Application.getAndroidId()` (`expo-application`) on Android,
+`expo-secure-store` (Keychain, checked first before minting) on iOS — before minting a
+random id. Existing installs are untouched (still short-circuits on a cached AsyncStorage
+id), so this can't fragment anyone already using the app. Added
+`src/lib/__tests__/deviceId.test.ts` (9 cases). Both new native-module packages
+(`expo-application`, `expo-secure-store`) need **a dev client rebuild**, not just a JS
+reload, to take effect — flagged to the user, not yet done as of this write-up.
+
+**Verification status**: `npx tsc --noEmit` clean, `npm test` 248/248 at that point. Not
+hands-on verified (would need an actual uninstall/reinstall cycle on a real device/dev
+client build).
+
+## Rapid Round + online presence/invites (2026-08-21, same session as the fix above)
+
+User asked for: a "Rapid Round" multiplayer mode — 10 MCQ questions mixed from all 3
+levels' term pools (not one topic), 20s per question, scored by speed+accuracy, top-to-
+bottom leaderboard at the end — plus the ability to see which players are online and
+invite them directly into a room. Planned via `EnterPlanMode` (approved plan saved at
+`C:\Users\hi\.claude\plans\gentle-forging-chipmunk.md`, full rationale there) before any
+code, per workflow rule 2. Two decisions confirmed with the user via `AskUserQuestion`
+before building, both **the more expensive option**, not the lighter-weight default this
+session recommended — worth knowing if extending this further:
+- **Presence is app-wide from launch**, not scoped to just the multiplayer hub — a
+  player counts as "online" any time the app is open at all, at the cost of one Realtime
+  connection staying open for the entire session (not just while on a multiplayer
+  screen).
+- **Rapid Round folds into the existing `app/room/create.tsx`** as a 4th topic-picker
+  option ("Rapid Round"), rather than a separate route.
+
+**This reuses essentially all of Stage 2's existing Live Host Room machinery**
+(`challenge_rooms`/`challenge_room_players`/`challenge_room_answers`, `mcqService.ts`,
+`roomService.ts`, `computeRoomAnswerScore` — already exactly a speed+accuracy formula,
+untouched) — Rapid Round is a variant (mixed-topic pool, fixed 10 questions/20s), not a
+new system. The only genuinely new piece is presence/invites.
+
+**Schema** (`supabase/schema.sql`, **not yet applied to Supabase — same standing caveat
+as every prior multiplayer session**):
+- `challenge_rooms.topic` check constraint widened to also allow `'mixed'` (needed an
+  explicit `drop constraint` + `add constraint`, not just `if not exists`, since it's
+  altering an existing constraint on a table that may already exist live — the
+  auto-generated constraint name assumed is `challenge_rooms_topic_check`, Postgres's
+  default naming for an unnamed inline check; worth double-checking that name matches
+  what's actually live if the apply step errors).
+- `challenge_rooms.question_duration_ms` (new column, default 15000) — replaces the old
+  single shared `QUESTION_DURATION_MS` client constant with a per-room value, so Rapid's
+  20s and topic rooms' 15s coexist. `app/room/[code].tsx` and `app/room/[code]/play.tsx`
+  both now read `room.question_duration_ms` instead of the old constant (pure
+  generalization — existing topic rooms are unaffected, still default 15000).
+- New table `room_invites` (id, room_id, room_code, inviter_player_id,
+  inviter_display_name, invitee_player_id, status, created_at, unique on
+  `(room_id, invitee_player_id)` so re-inviting upserts rather than erroring/piling up).
+  `room_code`/`inviter_display_name` are both **denormalized** (like
+  `challenge_room_players.display_name_snapshot`) so the invitee's client never needs a
+  join back to `players`/`challenge_rooms` just to render the invite banner or navigate.
+  RLS follows this schema's existing wide-open trust model (documented inline, same
+  reasoning as `challenge_rooms_update_all`).
+
+**`src/lib/mcqService.ts`** — added `generateMixedMcqQuestions(count, rng?)`. Splits
+`count` as evenly as possible across all 3 topics (10 → 4/3/3, which topic gets the extra
+question is randomized via `rng`, not fixed); generates each topic **fully
+independently** (own DeepSeek call, own try/catch → static fallback) so one topic's
+DeepSeek hiccup doesn't wipe the other two's fresh wording; distractors for a question
+are always drawn from that question's own topic pool (never cross-topic — would make
+some questions trivially guessable by category); final question order is shuffled so
+topics aren't grouped. 6 new test cases in `mcqService.test.ts`.
+
+**`src/lib/roomService.ts`** — `createRoom` gained an optional 4th param
+`questionDurationMs` (defaults to `QUESTION_DURATION_MS` = 15000). Added
+`RAPID_QUESTION_DURATION_MS` (20000) and `RAPID_QUESTION_COUNT` (10) constants. 2 new
+test cases.
+
+**`src/lib/presenceService.ts`** (new) — `subscribeToLobbyPresence(playerId, displayName,
+onSync)`, a single shared app-wide channel (`'lobby-presence'`) every session with a
+resolved `playerId` tracks itself on for the whole session. Near-exact mirror of
+`roomService.ts`'s existing `subscribeToPresence`, just global scope instead of one room
+— and richer: reports `{playerId, displayName}[]` (not just names), since the invite flow
+needs the target's real `playerId`. 3 new tests (`presenceService.test.ts`).
+
+**`src/lib/inviteService.ts`** (new) — `sendInvite`/`respondToInvite`/
+`getPendingInvitesForPlayer`/`subscribeToInvites`, following the same
+`SyncResult`/never-throw conventions as every other service in this codebase.
+`subscribeToInvites` uses `postgres_changes` INSERT (persisted), not `broadcast` —
+same reasoning as `subscribeToRoom` elsewhere: it's the same table
+`getPendingInvitesForPlayer` reads from, so there's no separate ephemeral payload
+contract to design or let drift. 9 new tests (`inviteService.test.ts`).
+`src/testHelpers/supabaseMock.ts`'s `chainableSupabaseResult` gained `'upsert'` to its
+chainable method list (needed for `sendInvite`'s upsert-on-conflict).
+
+**`useGameStore.ts`** — new **non-persisted** state: `onlinePlayers: OnlinePlayer[]`,
+`pendingInvite: PendingInvite | null` (one at a time; a second invite arriving while one
+is showing just replaces it — not worth a queue). This is the **first time this store
+needed a `partialize`** (previously the whole state was persisted by default) —
+excludes exactly these two keys, since persisting a stale roster or resurfacing an
+already-handled invite after a restart would be wrong; everything else keeps persisting
+exactly as before. New `setOnlinePlayers`/`setPendingInvite`/`clearPendingInvite`
+actions. 4 new test cases including one asserting the `partialize` exclusion directly.
+
+**`app/_layout.tsx`** — owns the app-wide subscription lifecycle: a `useEffect` keyed on
+`playerId` (already reliably resolved shortly after launch by the existing
+`initDeviceId().then(flushPendingSync)` chain — no new eager-resolve logic needed) starts
+`subscribeToLobbyPresence` + `subscribeToInvites`, plus a one-time
+`getPendingInvitesForPlayer` catch-up fetch for anything sent while the app was closed
+(takes the oldest pending one if there are several). Renders the new
+`<IncomingInviteBanner />` above the `<Stack>` so an invite is visible regardless of
+current screen.
+
+**`src/components/multiplayer/IncomingInviteBanner.tsx`** (new) — dismissible inline
+card (not a modal — missing it is safe, the player just doesn't join), "`{inviter}`
+invited you to a live room — JOIN / DISMISS". Join calls `joinRoom` +
+`respondToInvite('accepted')` + navigates to `/room/[code]/play`; Dismiss calls
+`respondToInvite('declined')`. Not unit-tested (pure UI component, same testing-boundary
+precedent as the rest of this codebase's screens) — needs hands-on verification.
+
+**`app/room/[code].tsx`** (host/big-screen view) — new host-only "INVITE ONLINE PLAYERS"
+section in the lobby phase, below the existing room-scoped "CONNECTED" presence list.
+Lists the global `onlinePlayers` roster minus the host themselves minus anyone whose
+display name already appears in this room's own presence list — **that second exclusion
+is a name-based approximation**, not a true player-id-based one (would need an extra
+query against `challenge_room_players`; skipped as unnecessary complexity, and
+consistent with this app's already-accepted "anonymous display names aren't unique"
+limitation elsewhere). Each row has an "INVITE" button → `sendInvite(...)`, with an
+optimistic per-row "INVITED ✓" state after it succeeds. Empty state: "No one else is
+online right now — share the code instead."
+
+**`app/room/create.tsx`** — `TOPIC_OPTIONS` gained a 4th card ("Rapid Round — 10 mixed
+questions across all 3 levels · 20s each"), `topic` state is now `RoomTopic` (=
+`QuestionTopic | 'mixed'`, new type in `database.ts` — deliberately **not** widening
+`QuestionTopic` itself, since `'mixed'` is only ever valid for rooms, never for
+`cached_questions` or the solo-level generators). `handleCreate` branches only at the 2
+call sites that differ (`generateMixedMcqQuestions` vs `generateMcqQuestions`,
+`RAPID_QUESTION_DURATION_MS` vs `QUESTION_DURATION_MS`) — everything else (leaderboard
+view, `LeaderboardList` component, reveal/tally logic, `advancePhase`) needed **zero**
+changes, since they already just aggregate `points` per player regardless of topic.
+
+**Explicitly out of scope, flagged not silently dropped**: no OS push notifications — an
+invite only delivers live while the invitee's app is open (which is what "online" means
+here); reaching a fully-closed app needs `expo-notifications` + push-token registration,
+a separate larger feature. Anonymous display names still aren't unique (pre-existing
+limitation, not solved here).
+
+**Verification status**: `npx tsc --noEmit` clean, `npm test` 272/272 (24 new this part:
+6 mcqService + 2 roomService + 3 presenceService + 9 inviteService + 4 useGameStore).
+**Nothing hands-on has been tried** — checklist:
+
+1. **Apply the full current schema** to Supabase before any of this works end-to-end —
+   including the `challenge_rooms_topic_check` constraint widening and the new
+   `room_invites` table (see schema notes above).
+2. **Rebuild the dev client** if testing on a native device/simulator (not just `npm run
+   web`) — this session's earlier fix (see above) added `expo-application`/
+   `expo-secure-store`, both native modules.
+3. Host: "Play with Friends" → "Host a Live Room" → pick **"Rapid Round"** → confirm it
+   generates 10 questions (watch for slow-loading text past ~5s) and lands on the room
+   screen.
+4. From a **second session/device** (need a real second `playerId` — e.g. a second
+   browser profile or a second physical device, not just a second tab sharing the same
+   AsyncStorage/session): confirm that device shows up in the **first** device's
+   "INVITE ONLINE PLAYERS" list on the room lobby screen once both have the app open.
+5. Tap **Invite** on that player — confirm the row flips to "INVITED ✓", and confirm the
+   **invitee's** device shows the incoming-invite banner **immediately**, from
+   *whatever screen it's currently on* (not just the multiplayer hub) — this is the main
+   point of app-wide presence.
+6. Tap **Join** on the banner — confirm it lands the invitee on the room's play screen.
+7. Tap **Dismiss** on a different invite — confirm it clears without navigating.
+8. Close the invitee's app entirely, send it another invite, then reopen the app —
+   confirm the banner still appears (the catch-up-fetch path, not the live-subscribe
+   path).
+9. Play through a full Rapid Round: confirm the countdown is **20s** (not 15s), all 10
+   questions visibly draw from more than one level's terms, and the final leaderboard
+   sorts best-to-worst by total points.
+10. Confirm an **ordinary topic room** (Data Integrity/Personnel/Sterility) still behaves
+    exactly as before — 15s countdown, single-topic questions — to confirm the
+    duration/topic generalization didn't regress Stage 2's existing behavior.
+
+If anything misbehaves: a room stuck showing 15s on what should be a Rapid room, or vice
+versa, is most likely `question_duration_ms` not actually landing in the `createRoom`
+insert (check `RAPID_QUESTION_DURATION_MS` is being passed in `room/create.tsx`); an
+invite never arriving live is most likely `subscribeToInvites`' `postgres_changes`
+filter or RLS on `room_invites`; an invite banner showing the wrong inviter name is most
+likely `inviter_display_name` not being captured correctly at `sendInvite` time.
+
+This is a long, dense session (a bug fix plus a full multiplayer feature) — **a good
+point to start a fresh chat** for whatever comes next, per workflow rule 7.
 
 ## Multiplayer Stage 2 — Live Host Room: IMPLEMENTED, needs hands-on verification (2026-08-18)
 

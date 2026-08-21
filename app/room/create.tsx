@@ -7,16 +7,17 @@ import { AppHeader } from '../../src/components/AppHeader';
 import { GradientScreen } from '../../src/components/ui/GradientScreen';
 import { Button } from '../../src/components/ui/Button';
 import { colors, font, fontSize, radius, spacing } from '../../src/theme';
-import { generateMcqQuestions } from '../../src/lib/mcqService';
-import { createRoom } from '../../src/lib/roomService';
+import { generateMcqQuestions, generateMixedMcqQuestions } from '../../src/lib/mcqService';
+import { createRoom, QUESTION_DURATION_MS, RAPID_QUESTION_COUNT, RAPID_QUESTION_DURATION_MS } from '../../src/lib/roomService';
 import { ensurePlayer } from '../../src/lib/scoreSync';
-import { QuestionTopic } from '../../src/types/database';
+import { RoomTopic } from '../../src/types/database';
 import { useGameStore } from '../../src/store/useGameStore';
 
-const TOPIC_OPTIONS: { topic: QuestionTopic; label: string; desc: string }[] = [
+const TOPIC_OPTIONS: { topic: RoomTopic; label: string; desc: string }[] = [
   { topic: 'data_integrity', label: 'Data Integrity', desc: 'ALCOA+ principles' },
   { topic: 'personnel', label: 'Personnel', desc: 'Cleanroom roles & responsibilities' },
   { topic: 'sterility', label: 'Sterility', desc: 'Sterile product manufacture' },
+  { topic: 'mixed', label: 'Rapid Round', desc: '10 mixed questions across all 3 levels · 20s each' },
 ];
 
 const QUESTION_COUNT = 8;
@@ -28,7 +29,7 @@ export default function CreateRoomScreen() {
   const displayName = useGameStore((s) => s.displayName);
   const setPlayerId = useGameStore((s) => s.setPlayerId);
 
-  const [topic, setTopic] = useState<QuestionTopic>('data_integrity');
+  const [topic, setTopic] = useState<RoomTopic>('data_integrity');
   const [submitting, setSubmitting] = useState(false);
   const [loadingText, setLoadingText] = useState('Generating questions…');
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -54,13 +55,13 @@ export default function CreateRoomScreen() {
 
       let questions;
       try {
-        questions = await generateMcqQuestions(topic, QUESTION_COUNT);
+        questions = topic === 'mixed' ? await generateMixedMcqQuestions(RAPID_QUESTION_COUNT) : await generateMcqQuestions(topic, QUESTION_COUNT);
       } catch {
         setSubmitError("Couldn't build questions for this topic — check your connection and try again.");
         return;
       }
 
-      const result = await createRoom(hostPlayerId, topic, questions);
+      const result = await createRoom(hostPlayerId, topic, questions, topic === 'mixed' ? RAPID_QUESTION_DURATION_MS : QUESTION_DURATION_MS);
       if (!result.ok) {
         setSubmitError("Couldn't create the room — check your connection and try again.");
         return;

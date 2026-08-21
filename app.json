@@ -19,7 +19,8 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-secure-store"
     ],
     "ios": {
       "supportsTablet": true,

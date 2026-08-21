@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Image, ImageSourcePropType, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, ImageSourcePropType, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -39,8 +39,16 @@ export function LevelInstructions({ visible, steps, onFinish, canSkip = false }:
   // finishes decoding — a visible flash of the wrong mascot on every Next tap.
   // Prefetching every step's image as soon as the overlay opens means they're
   // all already decoded/cached by the time a player clicks through to them.
+  //
+  // Native-only: Image.resolveAssetSource is a native-platform static utility
+  // that turns a require()'d numeric asset id into a real {uri}. react-native-web
+  // doesn't implement it at all (it's undefined there), so calling it on web
+  // threw a TypeError that crashed the whole screen (no error boundary exists in
+  // this app) — see ISSUES_AND_SOLUTIONS.md. Skipping this on web just means web
+  // reverts to the pre-existing (documented, non-crashing) flash-of-stale-image
+  // behavior instead of prefetching — an acceptable trade for not crashing.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || Platform.OS === 'web') return;
     steps.forEach((s) => {
       if (!s.image) return;
       const uri = Image.resolveAssetSource(s.image.source)?.uri;

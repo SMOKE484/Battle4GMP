@@ -10,7 +10,6 @@ import { Button } from '../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../src/theme';
 import {
-  QUESTION_DURATION_MS,
   advancePhase,
   getQuestionAnswerTally,
   getRoomByCode,
@@ -18,6 +17,7 @@ import {
   subscribeToPresence,
   subscribeToRoom,
 } from '../../src/lib/roomService';
+import { sendInvite } from '../../src/lib/inviteService';
 import { McqQuestion } from '../../src/lib/mcqService';
 import { ChallengeRoomRow } from '../../src/types/database';
 import { useGameStore } from '../../src/store/useGameStore';
@@ -31,6 +31,7 @@ export default function HostRoomScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const playerId = useGameStore((s) => s.playerId);
   const displayName = useGameStore((s) => s.displayName);
+  const onlinePlayers = useGameStore((s) => s.onlinePlayers);
 
   const [status, setStatus] = useState<ScreenStatus>('loading');
   const [room, setRoom] = useState<ChallengeRoomRow | null>(null);
@@ -38,6 +39,7 @@ export default function HostRoomScreen() {
   const [tally, setTally] = useState<[number, number, number, number] | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [invitedPlayerIds, setInvitedPlayerIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     if (!code) return;
@@ -77,7 +79,7 @@ export default function HostRoomScreen() {
   const currentQuestion: McqQuestion | undefined = room ? questions[room.current_question_index] : undefined;
   const isLastQuestion = room ? room.current_question_index >= questions.length - 1 : false;
 
-  const phaseDeadline = room ? new Date(room.phase_started_at).getTime() + QUESTION_DURATION_MS : 0;
+  const phaseDeadline = room ? new Date(room.phase_started_at).getTime() + room.question_duration_ms : 0;
   const secondsLeft = Math.max(0, Math.ceil((phaseDeadline - now) / 1000));
 
   useEffect(() => {
@@ -114,6 +116,19 @@ export default function HostRoomScreen() {
       }
     });
   }, [room?.phase, room?.id]);
+
+  // Global online roster (app-wide, from _layout.tsx) minus this player (the
+  // host) and minus anyone whose display name already shows in this room's own
+  // presence list above — an approximation (names aren't unique app-wide) that
+  // matches this app's existing accepted limitation around anonymous names,
+  // rather than adding a new query just to resolve it exactly by player id.
+  const invitablePlayers = onlinePlayers.filter((p) => p.playerId !== playerId && !presenceNames.includes(p.displayName));
+
+  const handleInvite = async (targetPlayerId: string) => {
+    if (!room || !playerId) return;
+    const result = await sendInvite(room.id, room.code, playerId, displayName ?? 'Anonymous Pharmacist', targetPlayerId);
+    if (result.ok) setInvitedPlayerIds((prev) => new Set(prev).add(targetPlayerId));
+  };
 
   const handleStart = () => room && void advancePhase(room.id, 'question', 0);
   const handleRevealNow = () => room && void advancePhase(room.id, 'reveal');
@@ -161,6 +176,33 @@ export default function HostRoomScreen() {
                     <Text style={styles.playersText}>{presenceNames.join(', ')}</Text>
                   )}
                 </Card>
+
+                {isHost ? (
+                  <Card style={styles.playersCard}>
+                    <Text style={styles.sectionLabel}>INVITE ONLINE PLAYERS</Text>
+                    {invitablePlayers.length === 0 ? (
+                      <Text style={styles.emptyText}>No one else is online right now — share the code instead.</Text>
+                    ) : (
+                      <View style={styles.inviteList}>
+                        {invitablePlayers.map((p) => {
+                          const invited = invitedPlayerIds.has(p.playerId);
+                          return (
+                            <View key={p.playerId} style={styles.inviteRow}>
+                              <Text style={styles.inviteName}>{p.displayName}</Text>
+                              <Button
+                                label={invited ? 'INVITED ✓' : 'INVITE'}
+                                variant="secondary"
+                                disabled={invited}
+                                onPress={() => void handleInvite(p.playerId)}
+                                style={styles.inviteButton}
+                              />
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </Card>
+                ) : null}
 
                 {isHost ? <Button label="START →" onPress={handleStart} style={styles.actionButton} /> : null}
               </View>
@@ -310,6 +352,25 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.text.heading,
     lineHeight: 20,
+  },
+  inviteList: {
+    gap: spacing.sm,
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  inviteName: {
+    flex: 1,
+    fontSize: fontSize.md,
+    fontFamily: font('bodySemiBold'),
+    color: colors.text.heading,
+  },
+  inviteButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
   },
   actionButton: {
     marginTop: spacing.xl,

@@ -151,6 +151,22 @@ create table if not exists public.challenge_rooms (
 
 comment on table public.challenge_rooms is 'One row per live room. phase/current_question_index/phase_started_at are the host-driven state every client subscribes to via postgres_changes.';
 
+-- Rapid Round: a mixed-topic room pulling questions from all 3 levels at once,
+-- so 'mixed' has to be a valid topic value alongside the original 3. Widening
+-- an existing inline CHECK constraint needs an explicit drop+recreate (unlike a
+-- brand-new column, CREATE TABLE IF NOT EXISTS won't retroactively alter it on a
+-- table that already exists in Supabase) — 'challenge_rooms_topic_check' is
+-- Postgres's default auto-generated name for an unnamed inline check on the
+-- `topic` column of `challenge_rooms`.
+alter table public.challenge_rooms drop constraint if exists challenge_rooms_topic_check;
+alter table public.challenge_rooms add constraint challenge_rooms_topic_check
+  check (topic in ('data_integrity', 'personnel', 'sterility', 'mixed'));
+
+-- Per-room question duration (Rapid Round uses 20s; existing topic rooms keep
+-- their original 15s default) — was previously a single shared constant
+-- (QUESTION_DURATION_MS) baked into the client, which couldn't vary per room.
+alter table public.challenge_rooms add column if not exists question_duration_ms integer not null default 15000 check (question_duration_ms > 0);
+
 create table if not exists public.challenge_room_players (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.challenge_rooms (id) on delete cascade,
@@ -199,6 +215,30 @@ group by a.room_id, p.id, rp.display_name_snapshot
 order by a.room_id, total_points desc;
 
 -- ============================================================
+-- room_invites — direct "come join this room" invites between players,
+-- delivered to the invitee via postgres_changes (persisted, so an invite sent
+-- while the invitee's app is closed still shows up next time they open it,
+-- unlike a pure ephemeral broadcast).
+-- ============================================================
+create table if not exists public.room_invites (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.challenge_rooms (id) on delete cascade,
+  room_code text not null,                 -- denormalized: the invitee's client can navigate
+                                            -- straight to /room/[code] with no extra lookup
+  inviter_player_id uuid not null references public.players (id) on delete cascade,
+  inviter_display_name text not null,      -- denormalized (captured at send time, like
+                                            -- challenge_room_players.display_name_snapshot):
+                                            -- lets the invitee's banner show who invited them
+                                            -- with no join back to players
+  invitee_player_id uuid not null references public.players (id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'declined')),
+  created_at timestamptz not null default now(),
+  unique (room_id, invitee_player_id)      -- re-inviting the same person to the same room upserts
+);
+
+comment on table public.room_invites is 'One row per invite. status is updated by the invitee on accept/decline; inserted by the inviter via sendInvite.';
+
+-- ============================================================
 -- Row Level Security
 -- ============================================================
 alter table public.players enable row level security;
@@ -209,6 +249,7 @@ alter table public.challenge_participants enable row level security;
 alter table public.challenge_rooms enable row level security;
 alter table public.challenge_room_players enable row level security;
 alter table public.challenge_room_answers enable row level security;
+alter table public.room_invites enable row level security;
 
 -- Every policy below is preceded by `drop policy if exists` so this whole file can
 -- be re-run safely at any point (CREATE POLICY has no IF NOT EXISTS in Postgres) —
@@ -316,3 +357,21 @@ create policy "challenge_room_answers_insert_all" on public.challenge_room_answe
   for insert with check (exists (
     select 1 from public.challenge_rooms r where r.id = room_id and r.phase = 'question'
   ));
+
+-- room_invites: same wide-open trust model as the rest of this schema (anon key
+-- only, device_id/player_id are client-claimed with nothing server-verifiable
+-- behind them — see the challenge_rooms_update_all comment above for the full
+-- reasoning, not repeated here). select/insert/update are all open; the client
+-- filters select by its own claimed invitee_player_id, and update is how the
+-- invitee marks their own invite accepted/declined.
+drop policy if exists "room_invites_select_all" on public.room_invites;
+create policy "room_invites_select_all" on public.room_invites
+  for select using (true);
+
+drop policy if exists "room_invites_insert_all" on public.room_invites;
+create policy "room_invites_insert_all" on public.room_invites
+  for insert with check (true);
+
+drop policy if exists "room_invites_update_all" on public.room_invites;
+create policy "room_invites_update_all" on public.room_invites
+  for update using (true) with check (true);
