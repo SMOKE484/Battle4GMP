@@ -34,6 +34,9 @@ export interface GameState {
   clueTokens: number;
   hadErrorThisLevel: Record<LevelNumber, boolean>;
   hasSeenInstructions: Record<LevelNumber, boolean>;
+  // Separate from hasSeenInstructions (which is keyed 1|2|3 per level) since
+  // this covers the "Play with Friends" hub, not any one level.
+  hasSeenMultiplayerInstructions: boolean;
   pendingSync: PendingSync[];
   hasHydrated: boolean;
   // Not persisted — always freshly derived from the live presence/invites
@@ -49,6 +52,7 @@ interface GameActions {
   spendClueToken: () => boolean;
   markError: (level: LevelNumber) => void;
   markInstructionsSeen: (level: LevelNumber) => void;
+  markMultiplayerInstructionsSeen: () => void;
   completeLevel: (level: LevelNumber, score: number) => Promise<void>;
   flushPendingSync: () => Promise<void>;
   resetGame: () => void;
@@ -86,6 +90,7 @@ export const useGameStore = create<GameState & GameActions>()(
       clueTokens: STARTING_CLUE_TOKENS,
       hadErrorThisLevel: { 1: false, 2: false, 3: false },
       hasSeenInstructions: { 1: false, 2: false, 3: false },
+      hasSeenMultiplayerInstructions: false,
       pendingSync: [],
       hasHydrated: false,
       onlinePlayers: [],
@@ -138,6 +143,8 @@ export const useGameStore = create<GameState & GameActions>()(
       markInstructionsSeen: (level) => {
         set((s) => ({ hasSeenInstructions: { ...s.hasSeenInstructions, [level]: true } }));
       },
+
+      markMultiplayerInstructionsSeen: () => set({ hasSeenMultiplayerInstructions: true }),
 
       completeLevel: async (level, score) => {
         const nextLevels = { ...get().levels, [level]: { score, completed: true } };

@@ -9,7 +9,7 @@ import { Card } from '../../src/components/ui/Card';
 import { Button } from '../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../src/theme';
-import { advancePhase, getQuestionAnswerTally, getRoomLeaderboard, subscribeToPresence } from '../../src/lib/roomService';
+import { advancePhase, getPhaseDurationMs, getQuestionAnswerTally, getRoomLeaderboard, subscribeToPresence } from '../../src/lib/roomService';
 import { sendInvite } from '../../src/lib/inviteService';
 import { useRoomSync } from '../../src/hooks/useRoomSync';
 import { McqQuestion } from '../../src/lib/mcqService';
@@ -47,32 +47,51 @@ export default function HostRoomScreen() {
   const currentQuestion: McqQuestion | undefined = room ? questions[room.current_question_index] : undefined;
   const isLastQuestion = room ? room.current_question_index >= questions.length - 1 : false;
 
-  const phaseDeadline = room ? new Date(room.phase_started_at).getTime() + room.question_duration_ms : 0;
+  // Both 'question' (answer window) and 'reveal' (holds before moving on) are
+  // timed phases — getPhaseDurationMs picks the right duration for whichever
+  // one the room is currently in, so one countdown/auto-advance mechanism
+  // serves both instead of two near-duplicate ones.
+  const phaseDeadline = room ? new Date(room.phase_started_at).getTime() + getPhaseDurationMs(room) : 0;
   const secondsLeft = Math.max(0, Math.ceil((phaseDeadline - now) / 1000));
 
   useEffect(() => {
-    if (!room || room.phase !== 'question') return;
+    if (!room || (room.phase !== 'question' && room.phase !== 'reveal')) return;
     const interval = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(interval);
   }, [room?.phase, room?.id]);
 
-  // Host auto-advances to reveal once the countdown runs out — nobody has to
-  // tap anything for the room to keep moving, though "Reveal now" still lets
-  // the host cut a question short. The ref guard matters: `now` ticks every
-  // 250ms while the phase stays 'question' until the write resolves, so
-  // without it the deadline would fire several duplicate advances in a row.
+  // Host auto-advances the room once the current timed phase's countdown runs
+  // out — nobody has to tap anything to keep the room moving: 'question' auto-
+  // reveals (though "Reveal now" still lets the host cut it short), and
+  // 'reveal' auto-advances straight to the next question (or 'ended' on the
+  // last one) — there's no per-question leaderboard step to click through.
+  // The ref guard matters: `now` ticks every 250ms while the phase is still
+  // the old one until the write resolves, so without it the deadline would
+  // fire several duplicate advances in a row.
   const autoAdvancedForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!room || !isHost || room.phase !== 'question') return;
+    if (!room || !isHost) return;
+    if (room.phase !== 'question' && room.phase !== 'reveal') return;
     if (now < phaseDeadline) return;
 
-    const key = `${room.id}:${room.current_question_index}:${room.phase_started_at}`;
+    const key = `${room.id}:${room.phase}:${room.current_question_index}:${room.phase_started_at}`;
     if (autoAdvancedForRef.current === key) return;
     autoAdvancedForRef.current = key;
 
-    void advancePhase(room.id, 'reveal').then((result) => {
-      if (result.ok) applyRoom(result.room);
+    const next: [RoomPhase, number | undefined] =
+      room.phase === 'question' ? ['reveal', undefined] : [isLastQuestion ? 'ended' : 'question', isLastQuestion ? undefined : room.current_question_index + 1];
+
+    void advancePhase(room.id, next[0], next[1]).then((result) => {
+      if (result.ok) {
+        applyRoom(result.room);
+      } else {
+        // Same silent-failure shape as a failed manual tap — an automatic
+        // advance that quietly does nothing is just as confusing as a button
+        // that does nothing, so it gets the same inline error treatment.
+        setActionError("Couldn't move the room on automatically. Please try again.");
+        autoAdvancedForRef.current = null; // let the next tick retry rather than being permanently stuck on this key
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, room?.phase, isHost]);
@@ -88,7 +107,7 @@ export default function HostRoomScreen() {
   }, [room?.phase, room?.current_question_index, room?.id]);
 
   useEffect(() => {
-    if (!room || (room.phase !== 'leaderboard' && room.phase !== 'ended')) return;
+    if (!room || room.phase !== 'ended') return;
     void getRoomLeaderboard(room.id).then((result) => {
       if (result.ok) {
         setLeaderboard(result.rows.map((r) => ({ playerId: r.player_id, name: r.display_name, score: r.total_points })));
@@ -141,9 +160,6 @@ export default function HostRoomScreen() {
 
   const handleStart = () => void runAdvance('question', 0);
   const handleRevealNow = () => void runAdvance('reveal');
-  const handleShowLeaderboard = () => void runAdvance('leaderboard');
-  const handleNextQuestion = () =>
-    void runAdvance(isLastQuestion ? 'ended' : 'question', isLastQuestion ? undefined : (room?.current_question_index ?? 0) + 1);
 
   return (
     <GradientScreen>
@@ -248,29 +264,9 @@ export default function HostRoomScreen() {
                   })}
                 </View>
                 {isHost ? hostActionError : null}
-                {isHost ? (
-                  <Button label="Show Leaderboard →" onPress={handleShowLeaderboard} loading={advancing} style={styles.actionButton} />
-                ) : null}
-              </View>
-            ) : room.phase === 'leaderboard' ? (
-              <View>
-                <Text style={styles.sectionLabel}>LEADERBOARD</Text>
-                {leaderboard.length === 0 ? (
-                  <Card style={styles.emptyCard}>
-                    <Text style={styles.emptyText}>No answers yet.</Text>
-                  </Card>
-                ) : (
-                  <LeaderboardList rows={leaderboard} />
-                )}
-                {isHost ? hostActionError : null}
-                {isHost ? (
-                  <Button
-                    label={isLastQuestion ? 'End Room →' : 'Next Question →'}
-                    onPress={handleNextQuestion}
-                    loading={advancing}
-                    style={styles.actionButton}
-                  />
-                ) : null}
+                <Text style={styles.nextUpText}>
+                  {isLastQuestion ? 'Final results' : 'Next question'} in {secondsLeft}…
+                </Text>
               </View>
             ) : (
               <View>
@@ -456,5 +452,10 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontFamily: font('bodyExtraBold'),
     color: colors.text.heading,
+  },
+  nextUpText: {
+    fontSize: fontSize.sm,
+    color: colors.text.faint,
+    marginTop: spacing.xl,
   },
 });

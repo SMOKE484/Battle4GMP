@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -5,50 +6,81 @@ import { Feather } from '@expo/vector-icons';
 import { AppHeader } from '../../src/components/AppHeader';
 import { BottomNav } from '../../src/components/BottomNav';
 import { GradientScreen } from '../../src/components/ui/GradientScreen';
+import { InstructionStep, LevelInstructions } from '../../src/components/LevelInstructions';
 import { colors, font, fontSize, radius, spacing } from '../../src/theme';
+import { useGameStore } from '../../src/store/useGameStore';
+
+const MULTIPLAYER_INSTRUCTIONS: InstructionStep[] = [
+  {
+    title: 'Rapid Round',
+    body: 'A fast-paced live room pulling 10 mixed questions from all 3 levels — 20 seconds to answer each one.',
+    image: { source: require('../../assets/StopwatchRapidRound.png'), width: 220, height: 184 },
+  },
+  {
+    title: 'Speed + Accuracy Win',
+    body: "The faster and more accurate your answers, the more points you score. Standings are ranked best to least best at the end.",
+    image: { source: require('../../assets/TrophyLeaderboard.png'), width: 190, height: 220 },
+  },
+  {
+    title: 'Everyone Answers at Once',
+    body: 'One player hosts and controls the pace — everyone else joins on their phone and answers the same question at the same time.',
+    image: { source: require('../../assets/BuzzerbuttonLiveRoom.png'), width: 220, height: 135 },
+  },
+  {
+    title: 'Invite Friends Directly',
+    body: "See who's online right now and invite them straight into your room — no code needed if they're already in the app.",
+    image: { source: require('../../assets/TwotoneCapsuleInviteFriends.png'), width: 220, height: 148 },
+  },
+];
 
 export default function ChallengeHubScreen() {
   const router = useRouter();
+  const hasHydrated = useGameStore((s) => s.hasHydrated);
+  const hasSeenMultiplayerInstructions = useGameStore((s) => s.hasSeenMultiplayerInstructions);
+  const markMultiplayerInstructionsSeen = useGameStore((s) => s.markMultiplayerInstructionsSeen);
+  const [showInstructions, setShowInstructions] = useState(false);
+
+  // Shows on every visit, not just the first — same reasoning as each level's
+  // own instructions overlay — gated on hasHydrated purely so
+  // hasSeenMultiplayerInstructions has already loaded from storage before the
+  // overlay renders, so a returning player's Skip button is there immediately.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    setShowInstructions(true);
+  }, [hasHydrated]);
+
+  const handleFinishInstructions = () => {
+    setShowInstructions(false);
+    markMultiplayerInstructionsSeen();
+  };
 
   return (
     <GradientScreen>
       <AppHeader />
+
+      <LevelInstructions
+        visible={showInstructions}
+        steps={MULTIPLAYER_INSTRUCTIONS}
+        onFinish={handleFinishInstructions}
+        canSkip={hasSeenMultiplayerInstructions}
+      />
+
       <View style={styles.content}>
-        <Text style={styles.title}>Play with Friends</Text>
-        <Text style={styles.subtitle}>Race a friend on your own time, or run a live quiz together.</Text>
+        <View style={styles.headingRow}>
+          <View style={styles.headingText}>
+            <Text style={styles.title}>Play with Friends</Text>
+            <Text style={styles.subtitle}>Host a live quiz for your class, or join one with a code.</Text>
+          </View>
+          <Pressable
+            onPress={() => setShowInstructions(true)}
+            style={styles.helpButton}
+            accessibilityRole="button"
+            accessibilityLabel="How multiplayer works"
+          >
+            <Feather name="help-circle" size={18} color={colors.purple.muted} />
+          </Pressable>
+        </View>
 
-        <Text style={styles.groupLabel}>ASYNC CHALLENGE</Text>
-        <Pressable
-          style={styles.card}
-          onPress={() => router.push('/challenge/create')}
-          accessibilityRole="button"
-        >
-          <View style={styles.cardIcon}>
-            <Feather name="plus-circle" size={22} color={colors.purple.primary} />
-          </View>
-          <View style={styles.cardText}>
-            <Text style={styles.cardTitle}>Create a Challenge</Text>
-            <Text style={styles.cardDesc}>Pick a level, get a code, share it with friends.</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.purple.muted} />
-        </Pressable>
-
-        <Pressable
-          style={styles.card}
-          onPress={() => router.push('/challenge/join')}
-          accessibilityRole="button"
-        >
-          <View style={styles.cardIcon}>
-            <Feather name="hash" size={22} color={colors.purple.primary} />
-          </View>
-          <View style={styles.cardText}>
-            <Text style={styles.cardTitle}>Join a Challenge</Text>
-            <Text style={styles.cardDesc}>Enter a friend's code and play their challenge.</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.purple.muted} />
-        </Pressable>
-
-        <Text style={styles.groupLabel}>LIVE ROOM</Text>
         <Pressable
           style={styles.card}
           onPress={() => router.push('/room/create')}
@@ -90,6 +122,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
   },
+  headingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  headingText: {
+    flex: 1,
+  },
+  helpButton: {
+    padding: 4,
+    marginTop: 2,
+  },
   title: {
     fontFamily: font('headingSemiBold'),
     fontSize: fontSize.xxl,
@@ -100,14 +145,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.text.muted,
     marginBottom: spacing.xl,
-  },
-  groupLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    color: colors.purple.muted,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
   },
   card: {
     flexDirection: 'row',

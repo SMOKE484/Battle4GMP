@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -9,7 +9,7 @@ import { Card } from '../../../src/components/ui/Card';
 import { Button } from '../../../src/components/ui/Button';
 import { LeaderboardList, LeaderboardEntry } from '../../../src/components/challenge/LeaderboardList';
 import { colors, font, fontSize, radius, spacing } from '../../../src/theme';
-import { getRoomLeaderboard, submitAnswer } from '../../../src/lib/roomService';
+import { REVEAL_DURATION_MS, getRoomLeaderboard, subscribeToPresence, submitAnswer } from '../../../src/lib/roomService';
 import { useRoomSync } from '../../../src/hooks/useRoomSync';
 import { computeRoomAnswerScore } from '../../../src/lib/levelScoring';
 import { McqQuestion } from '../../../src/lib/mcqService';
@@ -31,6 +31,19 @@ export default function PlayRoomScreen() {
   const [lastResult, setLastResult] = useState<{ isCorrect: boolean; points: number } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [now, setNow] = useState(Date.now());
+
+  const roomId = room?.id ?? null;
+
+  // Tracks this player on the room's presence channel so the host's
+  // "CONNECTED" list actually reflects who's joined — previously only the
+  // host ever tracked itself here, so a joining player never showed up at
+  // all, live or otherwise.
+  useEffect(() => {
+    if (!roomId || !playerId) return;
+    return subscribeToPresence(roomId, playerId, displayName ?? 'Anonymous Pharmacist', () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, playerId]);
 
   // A fresh question means a fresh answer slate, regardless of what happened
   // on the previous one.
@@ -41,7 +54,7 @@ export default function PlayRoomScreen() {
   }, [room?.current_question_index]);
 
   useEffect(() => {
-    if (!room || (room.phase !== 'leaderboard' && room.phase !== 'ended')) return;
+    if (!room || room.phase !== 'ended') return;
     void getRoomLeaderboard(room.id).then((result) => {
       if (result.ok) {
         setLeaderboard(result.rows.map((r) => ({ playerId: r.player_id, name: r.display_name, score: r.total_points })));
@@ -51,6 +64,19 @@ export default function PlayRoomScreen() {
 
   const questions = useMemo(() => (room?.question_set as McqQuestion[] | undefined) ?? [], [room?.question_set]);
   const currentQuestion: McqQuestion | undefined = room ? questions[room.current_question_index] : undefined;
+  const isLastQuestion = room ? room.current_question_index >= questions.length - 1 : false;
+
+  // Reveal auto-advances on its own (driven by the host) — this countdown is
+  // purely informational here, just so the screen doesn't look frozen while
+  // it waits, same reasoning as the host's own reveal countdown.
+  const revealDeadline = room && room.phase === 'reveal' ? new Date(room.phase_started_at).getTime() + REVEAL_DURATION_MS : 0;
+  const revealSecondsLeft = Math.max(0, Math.ceil((revealDeadline - now) / 1000));
+
+  useEffect(() => {
+    if (!room || room.phase !== 'reveal') return;
+    const interval = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(interval);
+  }, [room?.phase, room?.id]);
 
   const handleAnswer = async (optionIndex: 0 | 1 | 2 | 3) => {
     if (!room || !currentQuestion || selectedOption !== null) return;
@@ -118,7 +144,7 @@ export default function PlayRoomScreen() {
             ) : room.phase === 'question' ? (
               <View style={styles.centered}>
                 <Text style={styles.eyebrow}>QUESTION {room.current_question_index + 1}</Text>
-                <Text style={styles.subtitle}>Read the question on the shared screen, then pick your answer:</Text>
+                <Text style={styles.promptText}>{currentQuestion?.prompt}</Text>
 
                 <View style={styles.optionsGrid}>
                   {currentQuestion?.options.map((option, i) => {
@@ -178,18 +204,9 @@ export default function PlayRoomScreen() {
                     </Text>
                   </>
                 )}
-              </View>
-            ) : room.phase === 'leaderboard' ? (
-              <View>
-                <Text style={styles.sectionLabel}>LEADERBOARD</Text>
-                {leaderboard.length === 0 ? (
-                  <Card style={styles.emptyCard}>
-                    <Text style={styles.emptyText}>No answers yet.</Text>
-                  </Card>
-                ) : (
-                  <LeaderboardList rows={leaderboard} highlightPlayerId={playerId} />
-                )}
-                <Text style={styles.waitingText}>Waiting for the host to continue…</Text>
+                <Text style={styles.nextUpText}>
+                  {isLastQuestion ? 'Final results' : 'Next question'} in {revealSecondsLeft}…
+                </Text>
               </View>
             ) : (
               <View>
@@ -329,13 +346,6 @@ const styles = StyleSheet.create({
     color: colors.error.text,
     lineHeight: 16,
   },
-  sectionLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: '800',
-    color: colors.purple.primary,
-    fontFamily: font('bodyExtraBold'),
-    marginBottom: spacing.sm,
-  },
   emptyCard: {
     alignItems: 'center',
     paddingVertical: spacing.xl,
@@ -345,11 +355,19 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     fontStyle: 'italic',
   },
-  waitingText: {
+  nextUpText: {
     fontSize: fontSize.sm,
     color: colors.text.faint,
     textAlign: 'center',
     marginTop: spacing.lg,
+  },
+  promptText: {
+    fontFamily: font('headingSemiBold'),
+    fontSize: fontSize.lg,
+    color: colors.text.heading,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    lineHeight: 24,
   },
   actionButton: {
     marginTop: spacing.xl,

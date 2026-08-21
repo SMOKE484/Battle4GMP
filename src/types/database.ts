@@ -71,7 +71,9 @@ export type ChallengeLeaderboardRow = {
   completed_at: string;
 };
 
-export type RoomPhase = 'lobby' | 'question' | 'reveal' | 'leaderboard' | 'ended';
+// No standalone per-question leaderboard phase — reveal auto-advances straight
+// to the next question (or to 'ended', which shows the final leaderboard).
+export type RoomPhase = 'lobby' | 'question' | 'reveal' | 'ended';
 
 // 'mixed' is only ever valid for challenge_rooms (Rapid Round) — QuestionTopic
 // itself stays the 3 real topics, since that's what cached_questions and the

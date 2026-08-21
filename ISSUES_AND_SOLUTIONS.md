@@ -398,3 +398,70 @@ Separately, never let a client's own write depend on the realtime echo to update
 client's UI: apply the authoritative row the write returns, and treat realtime as the mechanism
 for informing *other* clients. Note that the schema changes here (like every prior multiplayer
 session's) must be applied to the live Supabase project before any of this takes effect.
+
+---
+
+## Room lobby's "CONNECTED" player list never updates, no matter how long you wait
+
+**Found:** user reported the connected-players count in a live room's lobby "isn't real time" —
+distinct from the earlier START-button realtime bug (already fixed).
+
+**Root cause:** `app/room/[code]/play.tsx` (the player's own screen) never called
+`subscribeToPresence`. Only the host's screen (`app/room/[code].tsx`) tracked itself on the
+room's presence channel — and it used that same subscription both to track the host's own
+presence *and* to render the "CONNECTED (N)" list. Since no joining player ever tracked itself on
+that channel, the host's list could only ever show the host, regardless of how many players
+joined or how long anyone waited — this was never a timing/latency issue, presence for players was
+simply never wired up.
+
+**Fix:** `play.tsx` now calls `subscribeToPresence` for itself once `roomId`/`playerId` are known
+(discarding the roster callback — the player doesn't need to render it, just needs to *be* in it).
+
+**How to avoid regressing this:** a presence channel only reflects the clients that actually call
+`.track()` on it — subscribing and rendering the sync callback on one screen doesn't do anything
+for who shows up in it. Any screen representing a "participant" in a live room needs its own
+track call, not just the screen doing the displaying.
+
+---
+
+## Rapid Round game-loop change: player screen now shows the question text, and reveal no longer stops at a per-question leaderboard
+
+**Not a bug** — two feature changes requested together, logged here because they touched the same
+core phase machinery as the two fixes above (`RoomPhase`, `advancePhase`, both room screens).
+
+1. **Question text now shows on the player's phone**, not just the shared/host screen. This was a
+   deliberate design choice from the original Stage 2 build (see the "Multiplayer Stage 2" section
+   in `HANDOFF.md` — phones showed *only* answer buttons, no prompt, so a player had to look at the
+   shared screen to know what was being asked). Reversed on explicit request; `app/room/[code].tsx`
+   (the shared/host screen) is otherwise unchanged — it still shows no options.
+2. **Removed the standalone per-question `'leaderboard'` phase.** The old loop was
+   `question → reveal → (host taps "Show Leaderboard") → leaderboard → (host taps "Next
+   Question") → question…`, showing full standings after *every* question. Per the user's explicit
+   spec ("reveal answer, count 5 seconds, then show next question"), `reveal` now auto-advances on
+   its own after `REVEAL_DURATION_MS` (5s, in `roomService.ts`) straight to the next question, or to
+   `'ended'` on the last one — no host tap, no per-question standings screen. The full leaderboard
+   still shows exactly once, on the final `'ended'` results screen (unchanged).
+
+**Implementation notes for future reference:**
+- `RoomPhase` is now `'lobby' | 'question' | 'reveal' | 'ended'` — `'leaderboard'` removed from
+  both the TS type and the `challenge_rooms` DB check constraint. Since `ADD CONSTRAINT` validates
+  *existing* rows, `schema.sql` first does `update challenge_rooms set phase = 'ended' where phase
+  = 'leaderboard'` so a room already mid-leaderboard from before this change doesn't break the
+  constraint add.
+- `getPhaseDurationMs(room)` (`roomService.ts`) is the one place that knows "'question' is timed by
+  `room.question_duration_ms`, 'reveal' is timed by `REVEAL_DURATION_MS`, everything else isn't" —
+  both room screens' countdown/auto-advance logic read through it instead of each re-deriving which
+  duration applies to which phase.
+- The host's auto-advance effect (`app/room/[code].tsx`) now drives *two* transitions off one timer
+  (question→reveal, reveal→next-question-or-ended) instead of one, keyed by
+  `room.id:phase:questionIndex:phase_started_at` so it can't double-fire either transition.
+- Also fixed while touching this: the auto-advance path previously called `advancePhase` directly
+  and silently dropped a failure (the same silent-failure shape as the START-button bug above, just
+  never applied to the *automatic* transitions). It now surfaces the same inline error the manual
+  buttons do, and clears its own dedupe key on failure so the next tick retries instead of getting
+  permanently stuck.
+
+**How to avoid regressing this:** if a "host acts, room advances" path is added anywhere else in
+this room flow, route it through error-visible state (like `runAdvance`/the auto-advance effect's
+own `.then` branch here) rather than a bare `void advancePhase(...)` — a swallowed failure there
+reads to the user as the room being stuck, not as an error.

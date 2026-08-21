@@ -15,9 +15,26 @@ export const QUESTION_DURATION_MS = 15000;
 export const RAPID_QUESTION_DURATION_MS = 20000;
 export const RAPID_QUESTION_COUNT = 10;
 
+// How long the reveal screen holds before auto-advancing to the next question
+// (or to 'ended' on the last one) — no per-question leaderboard step anymore,
+// reveal moves straight on by itself.
+export const REVEAL_DURATION_MS = 5000;
+
 function classifyError(err: unknown): SyncErrorKind {
   // fetch-level network failures (offline, DNS, etc.) surface as TypeError from the fetch spec
   return err instanceof TypeError ? 'network' : 'db_error';
+}
+
+/**
+ * Only 'question' and 'reveal' are timed phases that auto-advance; 'lobby' and
+ * 'ended' wait on a person. Shared by both room screens so the countdown/
+ * auto-advance logic reads one duration off the room's own current phase
+ * instead of each screen re-deriving it.
+ */
+export function getPhaseDurationMs(room: Pick<ChallengeRoomRow, 'phase' | 'question_duration_ms'>): number {
+  if (room.phase === 'question') return room.question_duration_ms;
+  if (room.phase === 'reveal') return REVEAL_DURATION_MS;
+  return 0;
 }
 
 export async function createRoom(

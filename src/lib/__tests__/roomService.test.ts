@@ -1,8 +1,10 @@
 import {
   QUESTION_DURATION_MS,
   RAPID_QUESTION_DURATION_MS,
+  REVEAL_DURATION_MS,
   advancePhase,
   createRoom,
+  getPhaseDurationMs,
   getQuestionAnswerTally,
   getRoomByCode,
   getRoomById,
@@ -163,10 +165,10 @@ describe('advancePhase', () => {
   it('omits current_question_index when not given', async () => {
     mockedFrom.mockReturnValue(chainableSupabaseResult({ data: roomRow, error: null }));
 
-    await advancePhase('room-1', 'leaderboard');
+    await advancePhase('room-1', 'ended');
 
     const updateBuilder = mockedFrom.mock.results[0].value;
-    expect(updateBuilder.update).toHaveBeenCalledWith({ phase: 'leaderboard', phase_started_at: expect.any(String) });
+    expect(updateBuilder.update).toHaveBeenCalledWith({ phase: 'ended', phase_started_at: expect.any(String) });
   });
 
   it('returns a db_error result on failure', async () => {
@@ -377,5 +379,20 @@ describe('subscribeToPresence', () => {
     unsubscribe();
 
     expect(mockedRemoveChannel).toHaveBeenCalledWith(channel);
+  });
+});
+
+describe('getPhaseDurationMs', () => {
+  it('returns the room-specific duration for the question phase', () => {
+    expect(getPhaseDurationMs({ phase: 'question', question_duration_ms: 20000 })).toBe(20000);
+  });
+
+  it('returns REVEAL_DURATION_MS for the reveal phase, regardless of question_duration_ms', () => {
+    expect(getPhaseDurationMs({ phase: 'reveal', question_duration_ms: 20000 })).toBe(REVEAL_DURATION_MS);
+  });
+
+  it('returns 0 for untimed phases', () => {
+    expect(getPhaseDurationMs({ phase: 'lobby', question_duration_ms: 15000 })).toBe(0);
+    expect(getPhaseDurationMs({ phase: 'ended', question_duration_ms: 15000 })).toBe(0);
   });
 });

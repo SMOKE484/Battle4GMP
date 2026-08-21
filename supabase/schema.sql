@@ -167,6 +167,18 @@ alter table public.challenge_rooms add constraint challenge_rooms_topic_check
 -- (QUESTION_DURATION_MS) baked into the client, which couldn't vary per room.
 alter table public.challenge_rooms add column if not exists question_duration_ms integer not null default 15000 check (question_duration_ms > 0);
 
+-- Dropped the standalone per-question 'leaderboard' phase — reveal now
+-- auto-advances straight to the next question (or to 'ended'), which already
+-- shows the full/final leaderboard. Bump any room already sitting in
+-- 'leaderboard' (from a game in progress before this change) to 'ended' FIRST,
+-- since ADD CONSTRAINT validates every existing row and would otherwise fail
+-- outright the moment any such row exists.
+update public.challenge_rooms set phase = 'ended' where phase = 'leaderboard';
+
+alter table public.challenge_rooms drop constraint if exists challenge_rooms_phase_check;
+alter table public.challenge_rooms add constraint challenge_rooms_phase_check
+  check (phase in ('lobby', 'question', 'reveal', 'ended'));
+
 create table if not exists public.challenge_room_players (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.challenge_rooms (id) on delete cascade,

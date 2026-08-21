@@ -27,6 +27,7 @@ function resetStore() {
     clueTokens: STARTING_CLUE_TOKENS,
     hadErrorThisLevel: { 1: false, 2: false, 3: false },
     hasSeenInstructions: { 1: false, 2: false, 3: false },
+    hasSeenMultiplayerInstructions: false,
     pendingSync: [],
     hasHydrated: true,
     onlinePlayers: [],
@@ -180,6 +181,14 @@ describe('useGameStore', () => {
 
     const state = useGameStore.getState();
     expect(state.hasSeenInstructions).toEqual({ 1: true, 2: false, 3: false });
+  });
+
+  it('markMultiplayerInstructionsSeen sets its own flag without touching per-level ones', () => {
+    useGameStore.getState().markMultiplayerInstructionsSeen();
+
+    const state = useGameStore.getState();
+    expect(state.hasSeenMultiplayerInstructions).toBe(true);
+    expect(state.hasSeenInstructions).toEqual({ 1: false, 2: false, 3: false });
   });
 
   it('resetGame clears score/tokens/error flags but preserves deviceId, pendingSync, and hasSeenInstructions', () => {
